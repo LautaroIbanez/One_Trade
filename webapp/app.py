@@ -11,12 +11,34 @@ try:
 except Exception:
     fetch_historical_data = None
 
+try:
+    from btc_1tpd_backtester.signals.today_signal import get_today_trade_recommendation
+except Exception:
+    get_today_trade_recommendation = None
 
-def load_trades(csv_path: str = "trades_final.csv") -> pd.DataFrame:
-    candidates = [
+# Symbols supported (reused from dashboards)
+DEFAULT_SYMBOLS = [
+    "BTC/USDT:USDT",
+    "ETH/USDT:USDT",
+    "BNB/USDT:USDT",
+    "SOL/USDT:USDT",
+    "ADA/USDT:USDT",
+    "XRP/USDT:USDT",
+]
+
+
+def load_trades(symbol: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
+    slug = None
+    if symbol:
+        slug = symbol.replace('/', '_').replace(':', '_')
+    candidates = []
+    if slug:
+        candidates.append(f"trades_final_{slug}.csv")
+        candidates.append(os.path.join("btc_1tpd_backtester", f"trades_final_{slug}.csv"))
+    candidates.extend([
         csv_path,
         os.path.join("btc_1tpd_backtester", "trades_final.csv"),
-    ]
+    ])
     for path in candidates:
         try:
             if not os.path.exists(path):
@@ -26,6 +48,9 @@ def load_trades(csv_path: str = "trades_final.csv") -> pd.DataFrame:
                 continue
             if "entry_time" in df.columns:
                 df["entry_time"] = pd.to_datetime(df["entry_time"])
+            # Filter by symbol if column exists and symbol provided
+            if symbol and "symbol" in df.columns:
+                df = df[df["symbol"] == symbol]
             return df
         except Exception:
             continue
@@ -164,11 +189,16 @@ def create_app():
     app.layout = dbc.Container([
         html.H2("BTC 1 Trade Per Day - Web Dashboard"),
         dbc.Row([
-            dbc.Col(dbc.Input(id="symbol", value="BTC/USDT:USDT", placeholder="Symbol"), md=4),
+            dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="mb-2"), md=4),
             dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary"), md=2),
         ], className="mb-3"),
 
         dbc.Alert(id="alert", is_open=False, color="warning"),
+
+        dbc.Card([
+            dbc.CardHeader("Recomendación de hoy"),
+            dbc.CardBody(id="today-reco"),
+        ], className="mb-4"),
 
         dbc.Card([
             dbc.CardHeader("Métricas"),
@@ -187,6 +217,7 @@ def create_app():
     ], fluid=True)
 
     @app.callback(
+        Output("today-reco", "children"),
         Output("metrics", "children"),
         Output("equity-fig", "figure"),
         Output("pnl-fig", "figure"),
@@ -198,22 +229,35 @@ def create_app():
         Output("alert", "is_open"),
         Output("alert", "children"),
         Input("refresh", "n_clicks"),
-        State("symbol", "value"),
+        State("symbol-dropdown", "value"),
         prevent_initial_call=False,
     )
     def update_dashboard(n_clicks, symbol):
-        trades = load_trades()
+        symbol = (symbol or "BTC/USDT:USDT").strip()
+        trades = load_trades(symbol)
         alert_msg = ""
         if trades.empty:
-            alert_msg = "No se encontró trades_final.csv. Crea o actualiza el archivo antes de usar la app."
+            alert_msg = f"No hay datos para {symbol}. Genera trades_final para este símbolo y vuelve a intentar."
 
         m = compute_metrics(trades)
-        metrics_children = html.Div([
-            html.Div([html.B("Total trades: "), f"{m['total_trades']}"]),
-            html.Div([html.B("Win rate: "), f"{m['win_rate']:.1f}%"]),
-            html.Div([html.B("PnL acumulado: "), f"{m['total_pnl']:+.2f} USDT"]),
-            html.Div([html.B("Drawdown máximo: "), f"{m['max_drawdown']:.2f} USDT"]),
-        ])
+        def kpi_card(title: str, value: str, color: str, icon: str):
+            return dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.Div([html.I(className=f"bi {icon} me-2"), html.Small(title, className="text-muted")]),
+                    html.H4(value, className=f"mt-2 text-{color}"),
+                ])
+            ], className="shadow-sm"), md=3, sm=6, xs=12)
+
+        win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
+        pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
+        dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
+
+        metrics_children = dbc.Row([
+            kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection"),
+            kpi_card("Win rate", f"{m['win_rate']:.1f}%", win_color, "bi-bullseye"),
+            kpi_card("PnL", f"{m['total_pnl']:+,.2f} USDT", pnl_color, "bi-cash-stack"),
+            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT", dd_color, "bi-graph-down"),
+        ], className="g-3")
 
         eq = figure_equity_curve(trades)
         pnl = figure_pnl_distribution(trades)
@@ -221,9 +265,31 @@ def create_app():
         tl = figure_trade_timeline(trades)
         mon = figure_monthly_performance(trades)
         wl = figure_win_loss(trades)
-        price_fig = figure_trades_on_price(trades, (symbol or "BTC/USDT:USDT").strip())
+        price_fig = figure_trades_on_price(trades, symbol)
 
-        return metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, bool(alert_msg), alert_msg
+        # Today recommendation card
+        reco_children = html.Div("Se requiere módulo de señales.")
+        if get_today_trade_recommendation is not None:
+            try:
+                config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
+                rec = get_today_trade_recommendation(symbol, config)
+                status = rec.get("status") or "-"
+                side = (rec.get("side") or "-").lower()
+                badge_color = "secondary" if side == "-" else ("success" if side == "long" else "danger")
+                reco_children = html.Div([
+                    html.Div([html.B("Estado: "), html.Span(status)]),
+                    html.Div([html.B("Sesgo macro: "), rec.get("macro_bias") or "-"]),
+                    html.Div([html.B("Dirección: "), dbc.Badge(side or "-", color=badge_color, className="ms-1")]),
+                    html.Div([html.B("Hora entrada: "), str(rec.get("entry_time") or "-")]),
+                    html.Div([html.B("Entrada: "), f"{rec.get('entry_price') or '-'}"]),
+                    html.Div([html.B("SL: "), f"{rec.get('stop_loss') or '-'}"]),
+                    html.Div([html.B("TP: "), f"{rec.get('take_profit') or '-'}"]),
+                ])
+            except Exception:
+                pass
+
+        # If no data, still return empty figures but show alert clearly
+        return reco_children, metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, bool(alert_msg), alert_msg
 
     return app
 
