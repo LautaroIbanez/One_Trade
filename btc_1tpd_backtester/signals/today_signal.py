@@ -42,17 +42,19 @@ def _utc_floor_day(dt: datetime) -> datetime:
     return datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
 
 
-def _compute_orb_levels(day_15m: pd.DataFrame) -> (Optional[float], Optional[float]):
+def _compute_orb_levels(day_15m: pd.DataFrame, orb_window: tuple[int, int] = (11, 12)) -> (Optional[float], Optional[float]):
     if day_15m.empty:
         return None, None
-    orb_data = day_15m[(day_15m.index.hour >= 11) & (day_15m.index.hour < 12)]
+    start_h, end_h = orb_window
+    orb_data = day_15m[(day_15m.index.hour >= start_h) & (day_15m.index.hour < end_h)]
     if orb_data.empty:
         return None, None
     return float(orb_data["high"].max()), float(orb_data["low"].min())
 
 
-def _find_breakout_in_entry_window(day_15m: pd.DataFrame, orb_high: float, orb_low: float):
-    entry_window = day_15m[(day_15m.index.hour >= 11) & (day_15m.index.hour < 13)]
+def _find_breakout_in_entry_window(day_15m: pd.DataFrame, orb_high: float, orb_low: float, entry_window_hours: tuple[int, int] = (11, 13)):
+    ew_start, ew_end = entry_window_hours
+    entry_window = day_15m[(day_15m.index.hour >= ew_start) & (day_15m.index.hour < ew_end)]
     if entry_window.empty:
         return None, None, None
     for ts, row in entry_window.iterrows():
@@ -104,15 +106,19 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
     except Exception:
         macro_bias = "neutral"
 
+    # Window configuration
+    orb_window = config.get("orb_window", (11, 12))
+    entry_window_hours = config.get("entry_window", (11, 13))
+
     # ORB levels
-    orb_high, orb_low = _compute_orb_levels(day_15m)
+    orb_high, orb_low = _compute_orb_levels(day_15m, orb_window)
 
     # Session times
-    minutes_to_orb = max(0, int((day_start.replace(hour=11, minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
-    minutes_to_close = max(0, int((day_start.replace(hour=13, minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
+    minutes_to_orb = max(0, int((day_start.replace(hour=orb_window[0], minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
+    minutes_to_close = max(0, int((day_start.replace(hour=entry_window_hours[1], minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
 
     # Before ORB window starts
-    if now_utc < day_start.replace(hour=11, minute=0, second=0, microsecond=0):
+    if now_utc < day_start.replace(hour=orb_window[0], minute=0, second=0, microsecond=0):
         return Recommendation(
             status="awaiting_orb",
             symbol=symbol,
@@ -122,11 +128,11 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
             orb_low=orb_low,
             minutes_to_orb=minutes_to_orb,
             minutes_to_close=minutes_to_close,
-            notes="Esperando ventana ORB (11:00–12:00 UTC)"
+            notes=f"Esperando ventana ORB ({orb_window[0]:02d}:00–{orb_window[1]:02d}:00 UTC)"
         ).__dict__
 
     # During entry window 11:00–13:00 UTC
-    if day_start.replace(hour=11) <= now_utc < day_start.replace(hour=13):
+    if day_start.replace(hour=entry_window_hours[0]) <= now_utc < day_start.replace(hour=entry_window_hours[1]):
         if orb_high is None or orb_low is None:
             return Recommendation(
                 status="no_orb_levels",
@@ -137,7 +143,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
                 notes="Aún sin niveles ORB dentro de 11:00–12:00 UTC"
             ).__dict__
 
-        side, breakout_time, entry_price = _find_breakout_in_entry_window(day_15m, orb_high, orb_low)
+        side, breakout_time, entry_price = _find_breakout_in_entry_window(day_15m, orb_high, orb_low, entry_window_hours)
         if side is None:
             return Recommendation(
                 status="awaiting_breakout",
@@ -147,7 +153,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
                 orb_high=orb_high,
                 orb_low=orb_low,
                 minutes_to_close=minutes_to_close,
-                notes="Sin ruptura aún dentro de 11:00–13:00 UTC"
+                notes=f"Sin ruptura aún dentro de {entry_window_hours[0]:02d}:00–{entry_window_hours[1]:02d}:00 UTC"
             ).__dict__
 
         # Compute SL/TP using SimpleTradingStrategy
@@ -185,11 +191,43 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
         ).__dict__
 
     # After entry window
-    if now_utc >= day_start.replace(hour=13):
-        if orb_high is None or orb_low is None:
-            note = "Sesión cerrada: no hubo niveles ORB válidos"
-        else:
-            note = "Sesión cerrada: sin ruptura dentro de 11:00–13:00 UTC"
+    if now_utc >= day_start.replace(hour=entry_window_hours[1]):
+        # Session closed; check if a valid breakout occurred earlier in the window
+        if orb_high is not None and orb_low is not None:
+            side, breakout_time, entry_price = _find_breakout_in_entry_window(day_15m, orb_high, orb_low, entry_window_hours)
+            if side is not None and breakout_time is not None and entry_price is not None:
+                strat = SimpleTradingStrategy(config)
+                prior_data = day_15m[day_15m.index <= breakout_time]
+                trade_params = strat.calculate_trade_params(side, entry_price, prior_data, breakout_time)
+                if not trade_params:
+                    return Recommendation(
+                        status="session_closed_params_unavailable",
+                        symbol=symbol,
+                        date=day_start.date().isoformat(),
+                        macro_bias=macro_bias,
+                        side=side,
+                        entry_time=breakout_time.isoformat(),
+                        entry_price=entry_price,
+                        orb_high=orb_high,
+                        orb_low=orb_low,
+                        notes=f"Sesión cerrada: ruptura detectada pero no se pudieron calcular SL/TP"
+                    ).__dict__
+                return Recommendation(
+                    status="session_closed_triggered",
+                    symbol=symbol,
+                    date=day_start.date().isoformat(),
+                    macro_bias=macro_bias,
+                    side=side,
+                    entry_time=breakout_time.isoformat(),
+                    entry_price=entry_price,
+                    stop_loss=float(trade_params["stop_loss"]),
+                    take_profit=float(trade_params["take_profit"]),
+                    orb_high=orb_high,
+                    orb_low=orb_low,
+                    notes=f"Sesión cerrada: ruptura ORB ocurrió dentro de {entry_window_hours[0]:02d}:00–{entry_window_hours[1]:02d}:00 UTC"
+                ).__dict__
+        # No breakout at all during the window
+        note = "Sesión cerrada: no hubo niveles ORB válidos" if orb_high is None or orb_low is None else f"Sesión cerrada: sin ruptura dentro de {entry_window_hours[0]:02d}:00–{entry_window_hours[1]:02d}:00 UTC"
         return Recommendation(
             status="session_closed",
             symbol=symbol,
