@@ -76,10 +76,20 @@ class SimpleTradingStrategy:
         
         return None, None, None
     
-    def calculate_trade_params(self, side, entry_price, day_data):
-        """Calculate trade parameters."""
-        # Calculate ATR
-        atr_value = atr(day_data, 14).iloc[-1]
+    def calculate_trade_params(self, side, entry_price, day_data, entry_time=None):
+        """Calculate trade parameters using data available up to entry_time (inclusive)."""
+        # Slice data up to entry_time if provided
+        data_for_indicators = day_data
+        if entry_time is not None:
+            data_for_indicators = day_data[day_data.index <= entry_time]
+        # Need sufficient candles for ATR
+        if len(data_for_indicators) < 14:
+            return None
+        # Calculate ATR on sliced data
+        atr_series = atr(data_for_indicators, 14)
+        if atr_series.empty or pd.isna(atr_series.iloc[-1]):
+            return None
+        atr_value = atr_series.iloc[-1]
         
         if pd.isna(atr_value):
             return None
@@ -206,8 +216,8 @@ class SimpleTradingStrategy:
         if side is None:
             return trades
         
-        # Calculate trade parameters
-        trade_params = self.calculate_trade_params(side, entry_price, day_data)
+        # Calculate trade parameters using candles only up to breakout_time
+        trade_params = self.calculate_trade_params(side, entry_price, day_data, breakout_time)
         
         if trade_params is None:
             return trades
@@ -215,6 +225,8 @@ class SimpleTradingStrategy:
         # Add entry info to trade params
         trade_params['entry_price'] = entry_price
         trade_params['entry_time'] = breakout_time
+        # Keep computed ATR
+        trade_params['atr_value'] = trade_params.get('atr_value')
         
         # Simulate trade
         exit_info = self.simulate_trade_exit(trade_params, side, day_data)
