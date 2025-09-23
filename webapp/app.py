@@ -2,6 +2,7 @@ import os
 import pandas as pd
 from dash import Dash, dcc, html, Input, Output, State
 import dash_bootstrap_components as dbc
+from dash import dash_table
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
@@ -59,7 +60,7 @@ def load_trades(symbol: str | None = None, csv_path: str = "trades_final.csv") -
 
 def compute_metrics(trades: pd.DataFrame) -> dict:
     if trades.empty:
-        return {"total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0}
+        return {"total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0, "avg_risk_per_trade": 0.0, "dd_in_r": 0.0}
     df = trades.copy()
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     df["running_max"] = df["cumulative_pnl"].cummax()
@@ -69,7 +70,15 @@ def compute_metrics(trades: pd.DataFrame) -> dict:
     win_rate = (wins / total_trades) * 100 if total_trades else 0.0
     total_pnl = float(df["pnl_usdt"].sum())
     max_drawdown = float(df["drawdown"].min()) if not df["drawdown"].empty else 0.0
-    return {"total_trades": total_trades, "win_rate": win_rate, "total_pnl": total_pnl, "max_drawdown": max_drawdown}
+    # Risk per trade estimated from pnl_usdt and r_multiple
+    risk_estimates = []
+    if "r_multiple" in df.columns:
+        for pnl, r in zip(df["pnl_usdt"], df["r_multiple"]):
+            if pd.notna(r) and r != 0:
+                risk_estimates.append(abs(pnl / r))
+    avg_risk = float(pd.Series(risk_estimates).mean()) if risk_estimates else 0.0
+    dd_in_r = (max_drawdown / avg_risk) if avg_risk else 0.0
+    return {"total_trades": total_trades, "win_rate": win_rate, "total_pnl": total_pnl, "max_drawdown": max_drawdown, "avg_risk_per_trade": avg_risk, "dd_in_r": dd_in_r}
 
 
 def figure_equity_curve(trades: pd.DataFrame):
@@ -213,6 +222,26 @@ def create_app():
             dcc.Tab(label="Monthly Performance", children=[dcc.Graph(id="monthly-fig")]),
             dcc.Tab(label="Win/Loss", children=[dcc.Graph(id="winloss-fig")]),
             dcc.Tab(label="Price Chart", children=[dcc.Graph(id="price-fig")]),
+            dcc.Tab(label="Trades", children=[
+                dash_table.DataTable(
+                    id="trades-table",
+                    columns=[
+                        {"name": "Entry Time", "id": "entry_time", "type": "datetime"},
+                        {"name": "Side", "id": "side"},
+                        {"name": "Entry", "id": "entry_price", "type": "numeric", "format": {"specifier": ".2f"}},
+                        {"name": "Exit", "id": "exit_price", "type": "numeric", "format": {"specifier": ".2f"}},
+                        {"name": "PnL (USDT)", "id": "pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
+                        {"name": "R", "id": "r_multiple", "type": "numeric", "format": {"specifier": "+.2f"}},
+                        {"name": "Exit Time", "id": "exit_time", "type": "datetime"},
+                        {"name": "Reason", "id": "exit_reason"},
+                    ],
+                    page_size=10,
+                    sort_action="native",
+                    filter_action="native",
+                    style_cell={"padding": "6px", "fontSize": 12},
+                    style_table={"overflowX": "auto"},
+                )
+            ]),
         ]),
     ], fluid=True)
 
@@ -226,6 +255,7 @@ def create_app():
         Output("monthly-fig", "figure"),
         Output("winloss-fig", "figure"),
         Output("price-fig", "figure"),
+        Output("trades-table", "data"),
         Output("alert", "is_open"),
         Output("alert", "children"),
         Input("refresh", "n_clicks"),
@@ -256,7 +286,8 @@ def create_app():
             kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection"),
             kpi_card("Win rate", f"{m['win_rate']:.1f}%", win_color, "bi-bullseye"),
             kpi_card("PnL", f"{m['total_pnl']:+,.2f} USDT", pnl_color, "bi-cash-stack"),
-            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT", dd_color, "bi-graph-down"),
+            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down"),
+            kpi_card("Riesgo/trade", f"{m['avg_risk_per_trade']:.2f} USDT", "info", "bi-shield"),
         ], className="g-3")
 
         eq = figure_equity_curve(trades)
@@ -289,7 +320,18 @@ def create_app():
                 pass
 
         # If no data, still return empty figures but show alert clearly
-        return reco_children, metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, bool(alert_msg), alert_msg
+        table_data = []
+        if not trades.empty:
+            tbl = trades.copy()
+            # Ordering recent first
+            tbl = tbl.sort_values(by="entry_time", ascending=False)
+            # Convert datetimes to ISO for DataTable
+            for col in ["entry_time", "exit_time"]:
+                if col in tbl.columns:
+                    tbl[col] = pd.to_datetime(tbl[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
+            table_data = tbl[[c for c in ["entry_time", "side", "entry_price", "exit_price", "pnl_usdt", "r_multiple", "exit_time", "exit_reason"] if c in tbl.columns]].to_dict("records")
+
+        return reco_children, metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, table_data, bool(alert_msg), alert_msg
 
     return app
 
