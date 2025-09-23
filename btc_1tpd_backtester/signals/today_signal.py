@@ -152,7 +152,9 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
 
         # Compute SL/TP using SimpleTradingStrategy
         strat = SimpleTradingStrategy(config)
-        trade_params = strat.calculate_trade_params(side, entry_price, day_15m)
+        # Calculate params using data only up to breakout_time
+        prior_data = day_15m[day_15m.index <= breakout_time]
+        trade_params = strat.calculate_trade_params(side, entry_price, prior_data, breakout_time)
         if not trade_params:
             return Recommendation(
                 status="trigger_detected_params_unavailable",
