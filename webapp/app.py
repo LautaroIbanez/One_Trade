@@ -14,8 +14,10 @@ except Exception:
 
 try:
     from btc_1tpd_backtester.signals.today_signal import get_today_trade_recommendation
+    from btc_1tpd_backtester.btc_1tpd_backtest_final import run_backtest
 except Exception:
     get_today_trade_recommendation = None
+    run_backtest = None
 
 # Symbols supported (reused from dashboards)
 DEFAULT_SYMBOLS = [
@@ -26,6 +28,49 @@ DEFAULT_SYMBOLS = [
     "ADA/USDT:USDT",
     "XRP/USDT:USDT",
 ]
+
+
+def refresh_trades(symbol: str) -> str:
+    """Refresh trades data by running backtest from last available date to today."""
+    if run_backtest is None:
+        return "Backtest module not available"
+    
+    try:
+        # Get last available entry_time to determine since date
+        existing_trades = load_trades(symbol)
+        if not existing_trades.empty and "entry_time" in existing_trades.columns:
+            last_date = pd.to_datetime(existing_trades["entry_time"]).max().date()
+            since = (last_date + pd.Timedelta(days=1)).isoformat()
+        else:
+            # Default to 30 days ago if no existing data
+            since = (datetime.now().date() - pd.Timedelta(days=30)).isoformat()
+        
+        until = datetime.now().date().isoformat()
+        
+        # Use same config as signals module
+        MODE_CONFIG = {
+            "conservative": {"risk_usdt": 10.0, "atr_mult_orb": 1.5, "tp_multiplier": 1.5, "orb_window": (11, 12), "entry_window": (11, 13)},
+            "moderate": {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "orb_window": (11, 12), "entry_window": (11, 13)},
+            "aggressive": {"risk_usdt": 30.0, "atr_mult_orb": 1.0, "tp_multiplier": 2.5, "orb_window": (10, 12), "entry_window": (10, 13)},
+        }
+        base_config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
+        mode_cfg = MODE_CONFIG.get("moderate", {})  # Default to moderate
+        config = {**base_config, **mode_cfg}
+        
+        # Run backtest
+        results = run_backtest(symbol, since, until, config)
+        
+        if not results.empty:
+            # Save with symbol-specific filename
+            slug = symbol.replace('/', '_').replace(':', '_')
+            filename = f"trades_final_{slug}.csv"
+            results.to_csv(filename, index=False)
+            return f"Updated {len(results)} trades to {filename}"
+        else:
+            return "No new trades generated"
+            
+    except Exception as e:
+        return f"Error refreshing trades: {str(e)}"
 
 
 def load_trades(symbol: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
@@ -192,15 +237,23 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
 
 
 def create_app():
-    app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+    app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
     app.title = "1TPD Web Dashboard"
 
+    navbar = dbc.Navbar(
+        dbc.Container([
+            dbc.NavbarBrand("BTC 1 Trade Per Day - Web Dashboard", className="fw-bold"),
+            dbc.NavbarToggler(id="navbar-toggler"),
+            dbc.Collapse(dbc.Row([
+                dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
+                dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3"), md="auto"),
+                dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary"), md="auto"),
+            ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
+        ]), color="dark", dark=True, className="mb-3"
+    )
+
     app.layout = dbc.Container([
-        html.H2("BTC 1 Trade Per Day - Web Dashboard"),
-        dbc.Row([
-            dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="mb-2"), md=4),
-            dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary"), md=2),
-        ], className="mb-3"),
+        navbar,
 
         dbc.Alert(id="alert", is_open=False, color="warning"),
 
@@ -215,13 +268,13 @@ def create_app():
         ], className="mb-4"),
 
         dcc.Tabs([
-            dcc.Tab(label="Equity Curve", children=[dcc.Graph(id="equity-fig")]),
-            dcc.Tab(label="PnL Distribution", children=[dcc.Graph(id="pnl-fig")]),
-            dcc.Tab(label="Drawdown", children=[dcc.Graph(id="dd-fig")]),
-            dcc.Tab(label="Trade Timeline", children=[dcc.Graph(id="timeline-fig")]),
-            dcc.Tab(label="Monthly Performance", children=[dcc.Graph(id="monthly-fig")]),
-            dcc.Tab(label="Win/Loss", children=[dcc.Graph(id="winloss-fig")]),
-            dcc.Tab(label="Price Chart", children=[dcc.Graph(id="price-fig")]),
+            dcc.Tab(label="Equity Curve", children=[dcc.Loading(children=dcc.Graph(id="equity-fig"), type="dot")]),
+            dcc.Tab(label="PnL Distribution", children=[dcc.Loading(children=dcc.Graph(id="pnl-fig"), type="dot")]),
+            dcc.Tab(label="Drawdown", children=[dcc.Loading(children=dcc.Graph(id="dd-fig"), type="dot")]),
+            dcc.Tab(label="Trade Timeline", children=[dcc.Loading(children=dcc.Graph(id="timeline-fig"), type="dot")]),
+            dcc.Tab(label="Monthly Performance", children=[dcc.Loading(children=dcc.Graph(id="monthly-fig"), type="dot")]),
+            dcc.Tab(label="Win/Loss", children=[dcc.Loading(children=dcc.Graph(id="winloss-fig"), type="dot")]),
+            dcc.Tab(label="Price Chart", children=[dcc.Loading(children=dcc.Graph(id="price-fig"), type="dot")]),
             dcc.Tab(label="Trades", children=[
                 dash_table.DataTable(
                     id="trades-table",
@@ -258,16 +311,28 @@ def create_app():
         Output("trades-table", "data"),
         Output("alert", "is_open"),
         Output("alert", "children"),
+        Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
-        State("symbol-dropdown", "value"),
+        State("investment-mode", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(n_clicks, symbol):
+    def update_dashboard(symbol, n_clicks, mode):
         symbol = (symbol or "BTC/USDT:USDT").strip()
+        
+        # Refresh trades data first
+        refresh_msg = ""
+        try:
+            refresh_msg = refresh_trades(symbol)
+        except Exception as e:
+            refresh_msg = f"Error refreshing trades: {str(e)}"
+        
+        # Load updated trades
         trades = load_trades(symbol)
         alert_msg = ""
         if trades.empty:
-            alert_msg = f"No hay datos para {symbol}. Genera trades_final para este símbolo y vuelve a intentar."
+            alert_msg = f"No hay datos para {symbol}. {refresh_msg}"
+        elif refresh_msg and "Error" in refresh_msg:
+            alert_msg = refresh_msg
 
         m = compute_metrics(trades)
         def kpi_card(title: str, value: str, color: str, icon: str):
@@ -302,8 +367,15 @@ def create_app():
         reco_children = html.Div("Se requiere módulo de señales.")
         if get_today_trade_recommendation is not None:
             try:
-                config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
-                rec = get_today_trade_recommendation(symbol, config)
+                MODE_CONFIG = {
+                    "conservative": {"risk_usdt": 10.0, "atr_mult_orb": 1.5, "tp_multiplier": 1.5, "orb_window": (11, 12), "entry_window": (11, 13)},
+                    "moderate": {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "orb_window": (11, 12), "entry_window": (11, 13)},
+                    "aggressive": {"risk_usdt": 30.0, "atr_mult_orb": 1.0, "tp_multiplier": 2.5, "orb_window": (10, 12), "entry_window": (10, 13)},
+                }
+                base_config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
+                mode_cfg = MODE_CONFIG.get(mode or "moderate", {})
+                merged_cfg = {**base_config, **mode_cfg}
+                rec = get_today_trade_recommendation(symbol, merged_cfg)
                 status = rec.get("status") or "-"
                 side = (rec.get("side") or "-").lower()
                 badge_color = "secondary" if side == "-" else ("success" if side == "long" else "danger")
@@ -315,6 +387,11 @@ def create_app():
                     html.Div([html.B("Entrada: "), f"{rec.get('entry_price') or '-'}"]),
                     html.Div([html.B("SL: "), f"{rec.get('stop_loss') or '-'}"]),
                     html.Div([html.B("TP: "), f"{rec.get('take_profit') or '-'}"]),
+                    html.Hr(),
+                    html.Div([
+                        html.B("Modo: "), dbc.Badge((mode or 'moderate').capitalize(), color="info", className="ms-1"),
+                        html.Span(f"  | ATR x {merged_cfg.get('atr_mult_orb')}  | TP x {merged_cfg.get('tp_multiplier')}  | Riesgo {merged_cfg.get('risk_usdt')} USDT", className="ms-2")
+                    ])
                 ])
             except Exception:
                 pass
