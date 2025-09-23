@@ -39,13 +39,21 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
         
         # Parse dates
         if isinstance(since, str):
-            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+            # Handle date-only strings (YYYY-MM-DD) by adding timezone
+            if len(since) == 10 and since.count('-') == 2:
+                since_dt = datetime.fromisoformat(since + 'T00:00:00+00:00')
+            else:
+                since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
         else:
             since_dt = since
             
         if until:
             if isinstance(until, str):
-                until_dt = datetime.fromisoformat(until.replace('Z', '+00:00'))
+                # Handle date-only strings (YYYY-MM-DD) by adding timezone and bumping to next day
+                if len(until) == 10 and until.count('-') == 2:
+                    until_dt = datetime.fromisoformat(until + 'T00:00:00+00:00') + timedelta(days=1)
+                else:
+                    until_dt = datetime.fromisoformat(until.replace('Z', '+00:00'))
             else:
                 until_dt = until
         else:
@@ -56,6 +64,10 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
             since_dt = since_dt.replace(tzinfo=timezone.utc)
         if until_dt.tzinfo is None:
             until_dt = until_dt.replace(tzinfo=timezone.utc)
+        
+        # Ensure until_dt > since_dt
+        if until_dt <= since_dt:
+            until_dt = since_dt + timedelta(days=1)
         
         # Convert to milliseconds
         since_ms = int(since_dt.timestamp() * 1000)
@@ -112,8 +124,8 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
         df = df[~df.index.duplicated(keep='first')]
         df = df.sort_index()
         
-        # Filter by date range
-        df = df[(df.index >= since_dt) & (df.index <= until_dt)]
+        # Filter by date range (until_dt is exclusive upper bound)
+        df = df[(df.index >= since_dt) & (df.index < until_dt)]
         
         print(f"Retrieved {len(df)} candles for {symbol}")
         return df
