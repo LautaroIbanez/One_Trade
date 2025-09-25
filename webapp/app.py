@@ -6,6 +6,14 @@ from dash import dash_table
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime
+from pathlib import Path
+import sys
+
+# Paths (ensure imports work when running from webapp/)
+base_dir = Path(__file__).resolve().parent
+repo_root = base_dir.parent
+if str(repo_root) not in sys.path:
+    sys.path.append(str(repo_root))
 
 try:
     from btc_1tpd_backtester.utils import fetch_historical_data
@@ -19,6 +27,53 @@ except Exception:
     get_today_trade_recommendation = None
     run_backtest = None
 
+# Paths already defined above
+
+# Centralized configuration for modes
+BASE_CONFIG = {
+    "risk_usdt": 20.0, 
+    "atr_mult_orb": 1.2, 
+    "tp_multiplier": 2.0, 
+    "adx_min": 15.0,
+    "commission_rate": 0.001,  # 0.1% default
+    "slippage_rate": 0.0005    # 0.05% default
+}
+MODE_CONFIG = {
+    "conservative": {
+        "risk_usdt": 10.0, 
+        "atr_mult_orb": 1.5, 
+        "tp_multiplier": 1.5, 
+        "orb_window": (11, 12), 
+        "entry_window": (11, 13),
+        "commission_rate": 0.0008,  # Lower commission for conservative
+        "slippage_rate": 0.0003
+    },
+    "moderate": {
+        "risk_usdt": 20.0, 
+        "atr_mult_orb": 1.2, 
+        "tp_multiplier": 2.0, 
+        "orb_window": (11, 12), 
+        "entry_window": (11, 13),
+        "commission_rate": 0.001,   # Standard commission
+        "slippage_rate": 0.0005
+    },
+    "aggressive": {
+        "risk_usdt": 30.0, 
+        "atr_mult_orb": 1.0, 
+        "tp_multiplier": 2.5, 
+        "orb_window": (10, 12), 
+        "entry_window": (10, 13),
+        "commission_rate": 0.0012,  # Higher commission for aggressive
+        "slippage_rate": 0.0008
+    },
+}
+
+
+def get_effective_config(symbol: str, mode: str) -> dict:
+    """Return merged BASE_CONFIG with selected mode overrides. Symbol kept for future symbol-specific tweaks."""
+    mode_cfg = MODE_CONFIG.get((mode or "moderate").lower(), {})
+    return {**BASE_CONFIG, **mode_cfg}
+
 # Symbols supported (reused from dashboards)
 DEFAULT_SYMBOLS = [
     "BTC/USDT:USDT",
@@ -30,76 +85,133 @@ DEFAULT_SYMBOLS = [
 ]
 
 
-def refresh_trades(symbol: str) -> str:
-    """Refresh trades data by running backtest from last available date to today."""
+def refresh_trades(symbol: str, mode: str) -> str:
+    """Refresh trades data by running backtest from last available date to today for a given symbol and mode."""
     if run_backtest is None:
         return "Backtest module not available"
     
+    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}")
     try:
-        # Get last available entry_time to determine since date
-        existing_trades = load_trades(symbol)
+        # Determine since date using last available entry_time for this symbol+mode, else 30 days back
+        existing_trades = load_trades(symbol, mode)
+        default_since = (datetime.now().date() - pd.Timedelta(days=30)).isoformat()
         if not existing_trades.empty and "entry_time" in existing_trades.columns:
-            last_date = pd.to_datetime(existing_trades["entry_time"]).max().date()
+            df_dates = pd.to_datetime(existing_trades["entry_time"])  # ensure datetime
+            last_date = df_dates.max().date()
             since = (last_date + pd.Timedelta(days=1)).isoformat()
         else:
-            # Default to 30 days ago if no existing data
-            since = (datetime.now().date() - pd.Timedelta(days=30)).isoformat()
+            since = default_since
         
         until = datetime.now().date().isoformat()
         
-        # Use same config as signals module
-        MODE_CONFIG = {
-            "conservative": {"risk_usdt": 10.0, "atr_mult_orb": 1.5, "tp_multiplier": 1.5, "orb_window": (11, 12), "entry_window": (11, 13)},
-            "moderate": {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "orb_window": (11, 12), "entry_window": (11, 13)},
-            "aggressive": {"risk_usdt": 30.0, "atr_mult_orb": 1.0, "tp_multiplier": 2.5, "orb_window": (10, 12), "entry_window": (10, 13)},
-        }
-        base_config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
-        mode_cfg = MODE_CONFIG.get("moderate", {})  # Default to moderate
-        config = {**base_config, **mode_cfg}
+        # Merge base and mode config
+        config = get_effective_config(symbol, mode)
+        print(f"📊 Effective config for {symbol} {mode}: {config}")
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
         
-        if not results.empty:
-            # Save with symbol-specific filename
-            slug = symbol.replace('/', '_').replace(':', '_')
-            filename = f"trades_final_{slug}.csv"
-            results.to_csv(filename, index=False)
-            return f"Updated {len(results)} trades to {filename}"
-        else:
+        # Determine filename with absolute path
+        slug = symbol.replace('/', '_').replace(':', '_')
+        mode_suffix = (mode or "moderate").lower()
+        data_dir = repo_root / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        filename = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+        
+        # Merge existing and new results
+        combined = pd.DataFrame()
+        if existing_trades is not None and not existing_trades.empty:
+            combined = existing_trades.copy()
+        if results is not None and not results.empty:
+            combined = pd.concat([combined, results], ignore_index=True) if not combined.empty else results.copy()
+        
+        if combined.empty:
             return "No new trades generated"
+        
+        # Normalize datetime and sort
+        if "entry_time" in combined.columns:
+            combined["entry_time"] = pd.to_datetime(combined["entry_time"]) 
+        if "exit_time" in combined.columns:
+            combined["exit_time"] = pd.to_datetime(combined["exit_time"]) 
+        
+        # Drop duplicates by key columns
+        dedup_keys = [col for col in ["entry_time", "exit_time", "side", "entry_price", "exit_price"] if col in combined.columns]
+        if dedup_keys:
+            combined = combined.drop_duplicates(subset=dedup_keys, keep="first")
+        
+        # Add mode column to track which mode generated these trades
+        combined["mode"] = mode
+        
+        # Sort by entry_time
+        if "entry_time" in combined.columns:
+            combined = combined.sort_values(by="entry_time").reset_index(drop=True)
+        
+        # Save combined DataFrame
+        combined.to_csv(filename, index=False)
+        print(f"✅ Saved {len(combined)} total trades to {filename}")
+        return f"OK: Saved {len(combined)} total trades to {filename} (since {since} until {until})"
             
     except Exception as e:
-        return f"Error refreshing trades: {str(e)}"
+        return f"ERROR: refresh_trades failed for {symbol} {mode}: {str(e)}"
 
 
-def load_trades(symbol: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
+def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
     slug = None
     if symbol:
         slug = symbol.replace('/', '_').replace(':', '_')
+    mode_suffix = (mode or "").lower().strip()
+    
+    print(f"📂 load_trades called: symbol={symbol}, mode={mode}")
+    
+    # Build absolute paths based on repo_root
     candidates = []
     if slug:
-        candidates.append(f"trades_final_{slug}.csv")
-        candidates.append(os.path.join("btc_1tpd_backtester", f"trades_final_{slug}.csv"))
+        # Prefer symbol+mode specific files
+        if mode_suffix:
+            candidates.append(repo_root / f"trades_final_{slug}_{mode_suffix}.csv")
+            candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}_{mode_suffix}.csv")
+            candidates.append(repo_root / "data" / f"trades_final_{slug}_{mode_suffix}.csv")
+        # Fallback to symbol-specific without mode
+        candidates.append(repo_root / f"trades_final_{slug}.csv")
+        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}.csv")
+        candidates.append(repo_root / "data" / f"trades_final_{slug}.csv")
+    # Generic fallbacks
+    if mode_suffix:
+        candidates.append(repo_root / f"trades_final_{mode_suffix}.csv")
+        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{mode_suffix}.csv")
+        candidates.append(repo_root / "data" / f"trades_final_{mode_suffix}.csv")
     candidates.extend([
-        csv_path,
-        os.path.join("btc_1tpd_backtester", "trades_final.csv"),
+        repo_root / csv_path,
+        repo_root / "btc_1tpd_backtester" / "trades_final.csv",
+        repo_root / "data" / "trades_final.csv",
     ])
+    
     for path in candidates:
         try:
-            if not os.path.exists(path):
+            if not path.exists():
                 continue
             df = pd.read_csv(path)
             if df.empty:
                 continue
+            print(f"✅ Loaded trades from: {path} ({len(df)} rows)")
+            # Normalize times
             if "entry_time" in df.columns:
                 df["entry_time"] = pd.to_datetime(df["entry_time"])
+            if "exit_time" in df.columns:
+                df["exit_time"] = pd.to_datetime(df["exit_time"]) 
             # Filter by symbol if column exists and symbol provided
             if symbol and "symbol" in df.columns:
                 df = df[df["symbol"] == symbol]
-            return df
-        except Exception:
+            # Sort recent first
+            if "entry_time" in df.columns:
+                df = df.sort_values(by="entry_time", ascending=False)
+            # Return only if any data remains
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            print(f"❌ Failed to load {path}: {e}")
             continue
+    print(f"❌ No valid trades found for {symbol} {mode}")
     return pd.DataFrame()
 
 
@@ -107,6 +219,9 @@ def compute_metrics(trades: pd.DataFrame) -> dict:
     if trades.empty:
         return {"total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0, "avg_risk_per_trade": 0.0, "dd_in_r": 0.0}
     df = trades.copy()
+    if "entry_time" in df.columns:
+        df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
+        df = df.sort_values(by="entry_time", ascending=True)
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     df["running_max"] = df["cumulative_pnl"].cummax()
     df["drawdown"] = df["cumulative_pnl"] - df["running_max"]
@@ -130,6 +245,9 @@ def figure_equity_curve(trades: pd.DataFrame):
     if trades.empty:
         return go.Figure()
     df = trades.copy()
+    if "entry_time" in df.columns:
+        df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
+        df = df.sort_values(by="entry_time", ascending=True)
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     fig = px.line(df, x="entry_time", y="cumulative_pnl", title="Equity Curve")
     fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
@@ -148,10 +266,13 @@ def figure_drawdown(trades: pd.DataFrame):
     if trades.empty:
         return go.Figure()
     df = trades.copy()
+    if "entry_time" in df.columns:
+        df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
+        df = df.sort_values(by="entry_time", ascending=True)
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     df["running_max"] = df["cumulative_pnl"].cummax()
     df["drawdown"] = df["cumulative_pnl"] - df["running_max"]
-    fig = px.area(df, x=df.index, y="drawdown", title="Drawdown")
+    fig = px.area(df, x="entry_time", y="drawdown", title="Drawdown")
     fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
     return fig
 
@@ -205,7 +326,12 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
         df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
         start_date = df["entry_time"].min().date().isoformat()
         end_date = df["entry_time"].max().date().isoformat()
+
+        # Try original symbol first; if empty, try without futures settle suffix
         price = fetch_historical_data(symbol, start_date, end_date, timeframe)
+        if price is None or price.empty:
+            alt_symbol = symbol.replace(":USDT", "") if ":USDT" in symbol else symbol
+            price = fetch_historical_data(alt_symbol, start_date, end_date, timeframe)
         if price is None or price.empty:
             return go.Figure()
         price = price.copy()
@@ -246,8 +372,8 @@ def create_app():
             dbc.NavbarToggler(id="navbar-toggler"),
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
-                dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3"), md="auto"),
-                dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary"), md="auto"),
+                dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
+                dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
     )
@@ -283,7 +409,10 @@ def create_app():
                         {"name": "Side", "id": "side"},
                         {"name": "Entry", "id": "entry_price", "type": "numeric", "format": {"specifier": ".2f"}},
                         {"name": "Exit", "id": "exit_price", "type": "numeric", "format": {"specifier": ".2f"}},
-                        {"name": "PnL (USDT)", "id": "pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
+                        {"name": "PnL Net (USDT)", "id": "pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
+                        {"name": "PnL Gross (USDT)", "id": "gross_pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
+                        {"name": "Commission (USDT)", "id": "commission_usdt", "type": "numeric", "format": {"specifier": ".2f"}},
+                        {"name": "Slippage (USDT)", "id": "slippage_usdt", "type": "numeric", "format": {"specifier": ".2f"}},
                         {"name": "R", "id": "r_multiple", "type": "numeric", "format": {"specifier": "+.2f"}},
                         {"name": "Exit Time", "id": "exit_time", "type": "datetime"},
                         {"name": "Reason", "id": "exit_reason"},
@@ -313,7 +442,7 @@ def create_app():
         Output("alert", "children"),
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
-        State("investment-mode", "value"),
+        Input("investment-mode", "value"),
         prevent_initial_call=False,
     )
     def update_dashboard(symbol, n_clicks, mode):
@@ -322,17 +451,18 @@ def create_app():
         # Refresh trades data first
         refresh_msg = ""
         try:
-            refresh_msg = refresh_trades(symbol)
+            refresh_msg = refresh_trades(symbol, mode or "moderate")
         except Exception as e:
             refresh_msg = f"Error refreshing trades: {str(e)}"
         
         # Load updated trades
-        trades = load_trades(symbol)
+        trades = load_trades(symbol, mode or "moderate")
         alert_msg = ""
+        mode_display = {"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or "moderate").lower(), (mode or "moderate").capitalize())
         if trades.empty:
-            alert_msg = f"No hay datos para {symbol}. {refresh_msg}"
+            alert_msg = f"No hay datos para {symbol} en modo {mode_display}. {refresh_msg}"
         elif refresh_msg and "Error" in refresh_msg:
-            alert_msg = refresh_msg
+            alert_msg = f"Error en modo {mode_display}: {refresh_msg}"
 
         m = compute_metrics(trades)
         def kpi_card(title: str, value: str, color: str, icon: str):
@@ -367,19 +497,13 @@ def create_app():
         reco_children = html.Div("Se requiere módulo de señales.")
         if get_today_trade_recommendation is not None:
             try:
-                MODE_CONFIG = {
-                    "conservative": {"risk_usdt": 10.0, "atr_mult_orb": 1.5, "tp_multiplier": 1.5, "orb_window": (11, 12), "entry_window": (11, 13)},
-                    "moderate": {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "orb_window": (11, 12), "entry_window": (11, 13)},
-                    "aggressive": {"risk_usdt": 30.0, "atr_mult_orb": 1.0, "tp_multiplier": 2.5, "orb_window": (10, 12), "entry_window": (10, 13)},
-                }
-                base_config = {"risk_usdt": 20.0, "atr_mult_orb": 1.2, "tp_multiplier": 2.0, "adx_min": 15.0}
-                mode_cfg = MODE_CONFIG.get(mode or "moderate", {})
-                merged_cfg = {**base_config, **mode_cfg}
+                merged_cfg = get_effective_config(symbol, mode)
                 rec = get_today_trade_recommendation(symbol, merged_cfg)
                 status = rec.get("status") or "-"
                 side = (rec.get("side") or "-").lower()
                 badge_color = "secondary" if side == "-" else ("success" if side == "long" else "danger")
                 reco_children = html.Div([
+                    html.Div([html.B("Símbolo: "), html.Span(symbol)]),
                     html.Div([html.B("Estado: "), html.Span(status)]),
                     html.Div([html.B("Sesgo macro: "), rec.get("macro_bias") or "-"]),
                     html.Div([html.B("Dirección: "), dbc.Badge(side or "-", color=badge_color, className="ms-1")]),
@@ -389,8 +513,12 @@ def create_app():
                     html.Div([html.B("TP: "), f"{rec.get('take_profit') or '-'}"]),
                     html.Hr(),
                     html.Div([
-                        html.B("Modo: "), dbc.Badge((mode or 'moderate').capitalize(), color="info", className="ms-1"),
+                        html.B("Modo: "), dbc.Badge(({"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or 'moderate').lower(), (mode or 'moderate').capitalize())), color="info", className="ms-1"),
                         html.Span(f"  | ATR x {merged_cfg.get('atr_mult_orb')}  | TP x {merged_cfg.get('tp_multiplier')}  | Riesgo {merged_cfg.get('risk_usdt')} USDT", className="ms-2")
+                    ]),
+                    html.Div([
+                        html.B("Costes: "), 
+                        html.Span(f"Comisión {merged_cfg.get('commission_rate', 0.001)*100:.2f}%  | Slippage {merged_cfg.get('slippage_rate', 0.0005)*100:.3f}%", className="text-muted")
                     ])
                 ])
             except Exception:
@@ -401,12 +529,18 @@ def create_app():
         if not trades.empty:
             tbl = trades.copy()
             # Ordering recent first
-            tbl = tbl.sort_values(by="entry_time", ascending=False)
+            if "entry_time" in tbl.columns:
+                tbl = tbl.sort_values(by="entry_time", ascending=False)
             # Convert datetimes to ISO for DataTable
             for col in ["entry_time", "exit_time"]:
                 if col in tbl.columns:
                     tbl[col] = pd.to_datetime(tbl[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
-            table_data = tbl[[c for c in ["entry_time", "side", "entry_price", "exit_price", "pnl_usdt", "r_multiple", "exit_time", "exit_reason"] if c in tbl.columns]].to_dict("records")
+            # Columns to show (only those that exist)
+            desired_cols = [
+                "entry_time", "symbol", "side", "qty", "entry_price", "exit_price", "pnl_usdt", "gross_pnl_usdt", "commission_usdt", "slippage_usdt", "r_multiple", "exit_time", "exit_reason"
+            ]
+            cols = [c for c in desired_cols if c in tbl.columns]
+            table_data = tbl[cols].to_dict("records")
 
         return reco_children, metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, table_data, bool(alert_msg), alert_msg
 
