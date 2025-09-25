@@ -6,7 +6,7 @@ Implements the 1 trade per day BTC strategy with ORB and fallback logic.
 import pandas as pd
 import numpy as np
 from datetime import datetime, timezone, timedelta
-from indicators import (
+from .indicators import (
     ema, atr, adx, vwap, opening_range_high, opening_range_low,
     opening_range_breakout, engulfing_pattern, volume_confirmation,
     calculate_r_multiple, get_macro_bias, is_trading_session,
@@ -44,10 +44,48 @@ class TradingStrategy:
         self.daily_trades = 0
         self.max_daily_trades = 1
         
+        # ORB levels cache (per day)
+        self.orb_cache = {}
+        
     def reset_daily_state(self):
         """Reset daily tracking variables."""
         self.daily_pnl = 0.0
         self.daily_trades = 0
+    
+    def get_orb_levels(self, ltf_data, current_time):
+        """Calculate and cache ORB levels for the day."""
+        # Get date key for caching
+        if hasattr(current_time, 'date'):
+            date_key = current_time.date()
+        else:
+            date_key = current_time.date()
+        
+        # Return cached levels if available
+        if date_key in self.orb_cache:
+            return self.orb_cache[date_key]
+        
+        # Calculate ORB levels for 11:00-12:00 UTC
+        if hasattr(current_time, 'to_pydatetime'):
+            dt = current_time.to_pydatetime()
+        else:
+            dt = current_time
+        
+        orb_start_time = dt.replace(hour=self.orb_start, minute=0, second=0, microsecond=0)
+        orb_end_time = dt.replace(hour=self.orb_end, minute=0, second=0, microsecond=0)
+        
+        # Filter data for ORB window
+        orb_data = ltf_data[(ltf_data.index >= orb_start_time) & (ltf_data.index < orb_end_time)]
+        
+        if orb_data.empty:
+            self.orb_cache[date_key] = (None, None)
+            return None, None
+        
+        orb_high = orb_data['high'].max()
+        orb_low = orb_data['low'].min()
+        
+        # Cache the results
+        self.orb_cache[date_key] = (orb_high, orb_low)
+        return orb_high, orb_low
         
     def is_daily_target_reached(self):
         """Check if daily profit target is reached."""
@@ -99,32 +137,30 @@ class TradingStrategy:
             # Get current time
             current_time = ltf_data.index[-1]
             
-            # Check if we're in ORB calculation window
-            if not is_orb_window(current_time):
+            # Check if we're in entry window (11:00-13:00 UTC)
+            if not (self.entry_start <= current_time.hour < self.entry_end):
                 return False, None, None, None
             
-            # Calculate ORB levels
-            # Convert to datetime for replace operations
-            if hasattr(current_time, 'to_pydatetime'):
-                dt = current_time.to_pydatetime()
-            else:
-                dt = current_time
-            
-            orb_start_time = dt.replace(hour=self.orb_start, minute=0, second=0, microsecond=0)
-            orb_end_time = dt.replace(hour=self.orb_end, minute=0, second=0, microsecond=0)
-            
-            orb_high = opening_range_high(ltf_data, orb_start_time, orb_end_time)
-            orb_low = opening_range_low(ltf_data, orb_start_time, orb_end_time)
+            # Get ORB levels (cached)
+            orb_high, orb_low = self.get_orb_levels(ltf_data, current_time)
             
             if pd.isna(orb_high) or pd.isna(orb_low):
                 return False, None, None, None
             
-            # Check breakout
-            if not opening_range_breakout(ltf_data, orb_high, orb_low, side):
+            # Check for breakout in entry window
+            current_price = ltf_data['close'].iloc[-1]
+            breakout_detected = False
+            
+            if side == 'long' and current_price > orb_high:
+                breakout_detected = True
+            elif side == 'short' and current_price < orb_low:
+                breakout_detected = True
+            
+            if not breakout_detected:
                 return False, orb_high, orb_low, None
             
-            # Get current price
-            entry_price = ltf_data['close'].iloc[-1]
+            # Get current price as entry price
+            entry_price = current_price
             
             # Calculate indicators
             atr_value = atr(ltf_data, 14).iloc[-1]
