@@ -14,9 +14,9 @@ import numpy as np
 # Add current directory to path for imports
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from utils import fetch_historical_data
-from indicators import ema, atr, adx, vwap
-from plot_results import create_comprehensive_report
+from .utils import fetch_historical_data
+from .indicators import ema, atr, adx, vwap
+from .plot_results import create_comprehensive_report
 
 
 class SimpleTradingStrategy:
@@ -31,6 +31,10 @@ class SimpleTradingStrategy:
         self.adx_min = config.get('adx_min', 15.0)
         self.atr_mult = config.get('atr_mult_orb', 1.2)
         self.tp_multiplier = config.get('tp_multiplier', 2.0)
+        
+        # Commission and slippage costs
+        self.commission_rate = config.get('commission_rate', 0.001)  # 0.1% default
+        self.slippage_rate = config.get('slippage_rate', 0.0005)     # 0.05% default
         
         # Daily state
         self.daily_pnl = 0.0
@@ -48,10 +52,10 @@ class SimpleTradingStrategy:
                 self.daily_pnl < self.daily_target and 
                 self.daily_pnl > self.daily_max_loss)
     
-    def get_orb_levels(self, day_data):
-        """Calculate ORB levels for the day."""
-        # ORB window: 11:00-12:00 UTC
-        orb_data = day_data[(day_data.index.hour >= 11) & (day_data.index.hour < 12)]
+    def get_orb_levels(self, day_data, orb_window=(11, 12)):
+        """Calculate ORB levels for the day based on configured window."""
+        start_h, end_h = orb_window
+        orb_data = day_data[(day_data.index.hour >= start_h) & (day_data.index.hour < end_h)]
         
         if orb_data.empty:
             return None, None
@@ -115,7 +119,7 @@ class SimpleTradingStrategy:
         }
     
     def simulate_trade_exit(self, trade_params, side, day_data):
-        """Simulate trade exit."""
+        """Simulate trade exit by evaluating each candle sequentially."""
         entry_price = trade_params['entry_price']
         stop_loss = trade_params['stop_loss']
         take_profit = trade_params['take_profit']
@@ -131,47 +135,106 @@ class SimpleTradingStrategy:
             exit_price = day_data['close'].iloc[-1]
             exit_reason = 'session_end'
         else:
-            # Check for TP/SL hits
-            if side == 'long':
-                tp_hit = remaining_data['high'] >= take_profit
-                sl_hit = remaining_data['low'] <= stop_loss
+            # Evaluate each candle sequentially
+            exit_time = None
+            exit_price = None
+            exit_reason = None
+            
+            for timestamp, candle in remaining_data.iterrows():
+                open_price = candle['open']
+                high_price = candle['high']
+                low_price = candle['low']
+                close_price = candle['close']
                 
-                if tp_hit.any():
-                    exit_time = remaining_data[tp_hit].index[0]
-                    exit_price = take_profit
-                    exit_reason = 'take_profit'
-                elif sl_hit.any():
-                    exit_time = remaining_data[sl_hit].index[0]
-                    exit_price = stop_loss
-                    exit_reason = 'stop_loss'
-                else:
-                    exit_time = remaining_data.index[-1]
-                    exit_price = remaining_data['close'].iloc[-1]
-                    exit_reason = 'session_end'
-            else:  # short
-                tp_hit = remaining_data['low'] <= take_profit
-                sl_hit = remaining_data['high'] >= stop_loss
-                
-                if tp_hit.any():
-                    exit_time = remaining_data[tp_hit].index[0]
-                    exit_price = take_profit
-                    exit_reason = 'take_profit'
-                elif sl_hit.any():
-                    exit_time = remaining_data[sl_hit].index[0]
-                    exit_price = stop_loss
-                    exit_reason = 'stop_loss'
-                else:
-                    exit_time = remaining_data.index[-1]
-                    exit_price = remaining_data['close'].iloc[-1]
-                    exit_reason = 'session_end'
+                # Determine which level is closer to open price (convention)
+                if side == 'long':
+                    # For long trades: check if TP or SL is hit first
+                    tp_distance = abs(high_price - take_profit) if high_price >= take_profit else float('inf')
+                    sl_distance = abs(low_price - stop_loss) if low_price <= stop_loss else float('inf')
+                    
+                    if tp_distance < sl_distance and high_price >= take_profit:
+                        # TP hit first
+                        exit_time = timestamp
+                        exit_price = take_profit
+                        exit_reason = 'take_profit'
+                        break
+                    elif sl_distance < tp_distance and low_price <= stop_loss:
+                        # SL hit first
+                        exit_time = timestamp
+                        exit_price = stop_loss
+                        exit_reason = 'stop_loss'
+                        break
+                    elif high_price >= take_profit and low_price <= stop_loss:
+                        # Both hit in same candle - use closer to open
+                        tp_dist_from_open = abs(take_profit - open_price)
+                        sl_dist_from_open = abs(stop_loss - open_price)
+                        
+                        if tp_dist_from_open <= sl_dist_from_open:
+                            exit_time = timestamp
+                            exit_price = take_profit
+                            exit_reason = 'take_profit'
+                        else:
+                            exit_time = timestamp
+                            exit_price = stop_loss
+                            exit_reason = 'stop_loss'
+                        break
+                        
+                else:  # short
+                    # For short trades: check if TP or SL is hit first
+                    tp_distance = abs(low_price - take_profit) if low_price <= take_profit else float('inf')
+                    sl_distance = abs(high_price - stop_loss) if high_price >= stop_loss else float('inf')
+                    
+                    if tp_distance < sl_distance and low_price <= take_profit:
+                        # TP hit first
+                        exit_time = timestamp
+                        exit_price = take_profit
+                        exit_reason = 'take_profit'
+                        break
+                    elif sl_distance < tp_distance and high_price >= stop_loss:
+                        # SL hit first
+                        exit_time = timestamp
+                        exit_price = stop_loss
+                        exit_reason = 'stop_loss'
+                        break
+                    elif low_price <= take_profit and high_price >= stop_loss:
+                        # Both hit in same candle - use closer to open
+                        tp_dist_from_open = abs(take_profit - open_price)
+                        sl_dist_from_open = abs(stop_loss - open_price)
+                        
+                        if tp_dist_from_open <= sl_dist_from_open:
+                            exit_time = timestamp
+                            exit_price = take_profit
+                            exit_reason = 'take_profit'
+                        else:
+                            exit_time = timestamp
+                            exit_price = stop_loss
+                            exit_reason = 'stop_loss'
+                        break
+            
+            # If no exit found, exit at end of day
+            if exit_time is None:
+                exit_time = remaining_data.index[-1]
+                exit_price = remaining_data['close'].iloc[-1]
+                exit_reason = 'session_end'
         
-        # Calculate PnL
+        # Calculate gross PnL
         if side == 'long':
-            pnl = (exit_price - entry_price) * position_size
+            gross_pnl = (exit_price - entry_price) * position_size
         else:
-            pnl = (entry_price - exit_price) * position_size
+            gross_pnl = (entry_price - exit_price) * position_size
         
-        # Calculate R-multiple
+        # Calculate commission and slippage costs
+        entry_commission = abs(entry_price * position_size * self.commission_rate)
+        exit_commission = abs(exit_price * position_size * self.commission_rate)
+        entry_slippage = abs(entry_price * position_size * self.slippage_rate)
+        exit_slippage = abs(exit_price * position_size * self.slippage_rate)
+        
+        total_costs = entry_commission + exit_commission + entry_slippage + exit_slippage
+        
+        # Net PnL after costs
+        net_pnl = gross_pnl - total_costs
+        
+        # Calculate R-multiple based on net PnL
         risk = abs(entry_price - stop_loss)
         if risk > 0:
             r_multiple = abs(exit_price - entry_price) / risk
@@ -184,11 +247,14 @@ class SimpleTradingStrategy:
             'exit_time': exit_time,
             'exit_price': exit_price,
             'exit_reason': exit_reason,
-            'pnl_usdt': pnl,
+            'pnl_usdt': net_pnl,  # Use net PnL after costs
+            'gross_pnl_usdt': gross_pnl,
+            'commission_usdt': entry_commission + exit_commission,
+            'slippage_usdt': entry_slippage + exit_slippage,
             'r_multiple': r_multiple
         }
     
-    def process_day(self, day_data, date):
+    def process_day(self, day_data, date, orb_window=(11, 12), entry_window=(11, 13)):
         """Process trading for a single day."""
         trades = []
         
@@ -199,13 +265,14 @@ class SimpleTradingStrategy:
             return trades
         
         # Get ORB levels
-        orb_high, orb_low = self.get_orb_levels(day_data)
+        orb_high, orb_low = self.get_orb_levels(day_data, orb_window)
         
         if orb_high is None or orb_low is None:
             return trades
         
-        # Entry window: 11:00-13:00 UTC
-        entry_data = day_data[(day_data.index.hour >= 11) & (day_data.index.hour < 13)]
+        # Entry window configurable
+        ew_start, ew_end = entry_window
+        entry_data = day_data[(day_data.index.hour >= ew_start) & (day_data.index.hour < ew_end)]
         
         if entry_data.empty:
             return trades
