@@ -115,15 +115,28 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
     if run_backtest is None:
         return "Backtest module not available"
     
-    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}")
+    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, 24h={full_day_trading}")
     try:
-        # Determine since date using last available entry_time for this symbol+mode, else 30 days back
-        existing_trades = load_trades(symbol, mode)
+        # Load existing trades for the current mode
+        existing_trades = load_trades(symbol, mode, full_day_trading)
+        
+        # Check for mode change by loading the opposite mode
+        opposite_trades = load_trades(symbol, mode, not full_day_trading)
+        mode_change_detected = not opposite_trades.empty
+        
         default_since = (datetime.now().date() - timedelta(days=30)).isoformat()
-        if not existing_trades.empty and "entry_time" in existing_trades.columns:
+        
+        if mode_change_detected:
+            print(f"🔄 Mode change detected: switching to {'24h' if full_day_trading else 'normal'} mode")
+            # Clear existing trades and force rebuild
+            existing_trades = pd.DataFrame()
+            since = default_since
+            print(f"📅 Mode change: using default since date: {since}")
+        elif not existing_trades.empty and "entry_time" in existing_trades.columns:
             df_dates = pd.to_datetime(existing_trades["entry_time"])  # ensure datetime
             last_date = df_dates.max().date()
             since = (last_date + timedelta(days=1)).isoformat()
+            print(f"📅 Using last trade date + 1 day: {since}")
         else:
             since = default_since
         
@@ -146,22 +159,15 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
         data_dir.mkdir(parents=True, exist_ok=True)
         filename = data_dir / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv"
         
-        # Check if we need to rebuild completely (mode change or full_day_trading change)
-        existing_trades_24h = load_trades(symbol, mode, True)  # Check 24h version
-        existing_trades_normal = load_trades(symbol, mode, False)  # Check normal version
-        
-        # If switching modes or no existing data, rebuild completely
-        rebuild_completely = (
-            (full_day_trading and not existing_trades_24h.empty and existing_trades_normal.empty) or
-            (not full_day_trading and not existing_trades_normal.empty and existing_trades_24h.empty) or
-            existing_trades.empty
-        )
+        # Use mode change detection from earlier
+        rebuild_completely = mode_change_detected or existing_trades.empty
         
         if rebuild_completely:
             print(f"🔄 Rebuilding completely for {symbol} {mode} (24h: {full_day_trading})")
+            # Replace CSV completely with new results, no concatenation
             combined = results.copy() if results is not None and not results.empty else pd.DataFrame()
         else:
-            # Merge existing and new results
+            # Merge existing and new results (incremental update)
             combined = pd.DataFrame()
             if existing_trades is not None and not existing_trades.empty:
                 combined = existing_trades.copy()
