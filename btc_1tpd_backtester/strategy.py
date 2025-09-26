@@ -32,12 +32,22 @@ class TradingStrategy:
         self.atr_mult_fallback = config['atr_mult_fallback']
         self.tp_multiplier = config['tp_multiplier']
         
-        # Session times (UTC)
-        self.orb_start = 11  # 11:00 UTC
-        self.orb_end = 12    # 12:00 UTC
-        self.entry_start = 11  # 11:00 UTC
-        self.entry_end = 13    # 13:00 UTC
+        # Trading windows and full day trading
+        self.orb_window = config.get('orb_window', (11, 12))
+        self.entry_window = config.get('entry_window', (11, 13))
+        self.full_day_trading = config.get('full_day_trading', False)
+        
+        # Session times (UTC) - use configured windows or defaults
+        self.orb_start = self.orb_window[0]
+        self.orb_end = self.orb_window[1]
+        self.entry_start = self.entry_window[0]
+        self.entry_end = self.entry_window[1]
         self.session_end = 17  # 17:00 UTC
+        
+        # Adjust entry window for full day trading
+        if self.full_day_trading:
+            self.entry_start = 0
+            self.entry_end = 24
         
         # Daily state
         self.daily_pnl = 0.0
@@ -307,8 +317,8 @@ class TradingStrategy:
     def should_exit_trade(self, trade, current_price, current_time, is_break_even=False):
         """Check if trade should be exited."""
         try:
-            # Force close at session end
-            if current_time.hour >= self.session_end:
+            # Force close at session end (only if not in full_day_trading mode)
+            if not self.full_day_trading and current_time.hour >= self.session_end:
                 return True, 'session_end', current_price
             
             # Check stop loss
