@@ -95,8 +95,23 @@ DEFAULT_SYMBOLS = [
 ]
 
 
-def refresh_trades(symbol: str, mode: str) -> str:
-    """Refresh trades data by running backtest from last available date to today for a given symbol and mode."""
+def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> str:
+    """
+    Refresh trades data by running backtest from last available date to today for a given symbol and mode.
+    
+    Args:
+        symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+        mode: Trading mode ('conservative', 'moderate', 'aggressive')
+        full_day_trading: If True, enables 24-hour trading mode with separate file storage
+    
+    Returns:
+        Status message indicating success or failure
+        
+    Note:
+        When full_day_trading mode changes, the system will rebuild the entire backtest
+        to avoid mixing different trading session types. Files are stored with _24h suffix
+        for full day trading mode to maintain separation.
+    """
     if run_backtest is None:
         return "Backtest module not available"
     
@@ -116,7 +131,9 @@ def refresh_trades(symbol: str, mode: str) -> str:
         
         # Merge base and mode config
         config = get_effective_config(symbol, mode)
-        print(f"📊 Effective config for {symbol} {mode}: {config}")
+        # Set full_day_trading flag
+        config["full_day_trading"] = bool(full_day_trading)
+        print(f"📊 Effective config for {symbol} {mode} (24h: {full_day_trading}): {config}")
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
@@ -124,16 +141,32 @@ def refresh_trades(symbol: str, mode: str) -> str:
         # Determine filename with absolute path
         slug = symbol.replace('/', '_').replace(':', '_')
         mode_suffix = (mode or "moderate").lower()
+        trading_suffix = "_24h" if full_day_trading else ""
         data_dir = repo_root / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
-        filename = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+        filename = data_dir / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv"
         
-        # Merge existing and new results
-        combined = pd.DataFrame()
-        if existing_trades is not None and not existing_trades.empty:
-            combined = existing_trades.copy()
-        if results is not None and not results.empty:
-            combined = pd.concat([combined, results], ignore_index=True) if not combined.empty else results.copy()
+        # Check if we need to rebuild completely (mode change or full_day_trading change)
+        existing_trades_24h = load_trades(symbol, mode, True)  # Check 24h version
+        existing_trades_normal = load_trades(symbol, mode, False)  # Check normal version
+        
+        # If switching modes or no existing data, rebuild completely
+        rebuild_completely = (
+            (full_day_trading and not existing_trades_24h.empty and existing_trades_normal.empty) or
+            (not full_day_trading and not existing_trades_normal.empty and existing_trades_24h.empty) or
+            existing_trades.empty
+        )
+        
+        if rebuild_completely:
+            print(f"🔄 Rebuilding completely for {symbol} {mode} (24h: {full_day_trading})")
+            combined = results.copy() if results is not None and not results.empty else pd.DataFrame()
+        else:
+            # Merge existing and new results
+            combined = pd.DataFrame()
+            if existing_trades is not None and not existing_trades.empty:
+                combined = existing_trades.copy()
+            if results is not None and not results.empty:
+                combined = pd.concat([combined, results], ignore_index=True) if not combined.empty else results.copy()
         
         if combined.empty:
             return "No new trades generated"
@@ -165,31 +198,52 @@ def refresh_trades(symbol: str, mode: str) -> str:
         return f"ERROR: refresh_trades failed for {symbol} {mode}: {str(e)}"
 
 
-def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
+def load_trades(symbol: str | None = None, mode: str | None = None, full_day_trading: bool = False, csv_path: str = "trades_final.csv") -> pd.DataFrame:
+    """
+    Load trades data from CSV files with support for different trading modes.
+    
+    Args:
+        symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+        mode: Trading mode ('conservative', 'moderate', 'aggressive')
+        full_day_trading: If True, loads 24-hour trading data (files with _24h suffix)
+        csv_path: Fallback CSV path if specific files not found
+    
+    Returns:
+        DataFrame with trades data
+        
+    Note:
+        Files are searched in order of preference:
+        1. trades_final_{symbol}_{mode}_{24h}.csv (if full_day_trading=True)
+        2. trades_final_{symbol}_{mode}.csv (if full_day_trading=False)
+        3. Generic fallbacks
+    """
     slug = None
     if symbol:
         slug = symbol.replace('/', '_').replace(':', '_')
     mode_suffix = (mode or "").lower().strip()
     
-    print(f"📂 load_trades called: symbol={symbol}, mode={mode}")
+    # Create suffix for full_day_trading mode
+    trading_suffix = "_24h" if full_day_trading else ""
+    
+    print(f"📂 load_trades called: symbol={symbol}, mode={mode}, 24h={full_day_trading}")
     
     # Build absolute paths based on repo_root
     candidates = []
     if slug:
-        # Prefer symbol+mode specific files
+        # Prefer symbol+mode+trading specific files
         if mode_suffix:
-            candidates.append(repo_root / f"trades_final_{slug}_{mode_suffix}.csv")
-            candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}_{mode_suffix}.csv")
-            candidates.append(repo_root / "data" / f"trades_final_{slug}_{mode_suffix}.csv")
+            candidates.append(repo_root / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv")
+            candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv")
+            candidates.append(repo_root / "data" / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv")
         # Fallback to symbol-specific without mode
-        candidates.append(repo_root / f"trades_final_{slug}.csv")
-        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}.csv")
-        candidates.append(repo_root / "data" / f"trades_final_{slug}.csv")
+        candidates.append(repo_root / f"trades_final_{slug}{trading_suffix}.csv")
+        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{slug}{trading_suffix}.csv")
+        candidates.append(repo_root / "data" / f"trades_final_{slug}{trading_suffix}.csv")
     # Generic fallbacks
     if mode_suffix:
-        candidates.append(repo_root / f"trades_final_{mode_suffix}.csv")
-        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{mode_suffix}.csv")
-        candidates.append(repo_root / "data" / f"trades_final_{mode_suffix}.csv")
+        candidates.append(repo_root / f"trades_final_{mode_suffix}{trading_suffix}.csv")
+        candidates.append(repo_root / "btc_1tpd_backtester" / f"trades_final_{mode_suffix}{trading_suffix}.csv")
+        candidates.append(repo_root / "data" / f"trades_final_{mode_suffix}{trading_suffix}.csv")
     candidates.extend([
         repo_root / csv_path,
         repo_root / "btc_1tpd_backtester" / "trades_final.csv",
@@ -509,12 +563,12 @@ def create_app():
         # Refresh trades data first
         refresh_msg = ""
         try:
-            refresh_msg = refresh_trades(symbol, mode or "moderate")
+            refresh_msg = refresh_trades(symbol, mode or "moderate", full_day_trading or False)
         except Exception as e:
             refresh_msg = f"Error refreshing trades: {str(e)}"
         
         # Load updated trades
-        trades = load_trades(symbol, mode or "moderate")
+        trades = load_trades(symbol, mode or "moderate", full_day_trading or False)
         alert_msg = ""
         mode_display = {"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or "moderate").lower(), (mode or "moderate").capitalize())
         if trades.empty:
@@ -612,6 +666,7 @@ def create_app():
         if get_today_trade_recommendation is not None:
             try:
                 merged_cfg = get_effective_config(symbol, mode)
+                merged_cfg['full_day_trading'] = full_day_trading or False
                 rec = get_today_trade_recommendation(symbol, merged_cfg)
                 status = rec.get("status") or "-"
                 side = (rec.get("side") or "-").lower()
