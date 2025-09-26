@@ -109,6 +109,11 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
     # Window configuration
     orb_window = config.get("orb_window", (11, 12))
     entry_window_hours = config.get("entry_window", (11, 13))
+    full_day_trading = config.get("full_day_trading", False)
+    
+    # Adjust entry window for full day trading
+    if full_day_trading:
+        entry_window_hours = (0, 24)
 
     # ORB levels
     orb_high, orb_low = _compute_orb_levels(day_15m, orb_window)
