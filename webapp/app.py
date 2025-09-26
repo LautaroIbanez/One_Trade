@@ -39,7 +39,8 @@ BASE_CONFIG = {
     "commission_rate": 0.001,  # 0.1% default
     "slippage_rate": 0.0005,   # 0.05% default
     "initial_capital": 1000.0, # Initial capital in USDT
-    "leverage": 1.0            # Leverage multiplier
+    "leverage": 1.0,           # Leverage multiplier
+    "full_day_trading": False  # Full day trading mode
 }
 MODE_CONFIG = {
     "conservative": {
@@ -396,6 +397,7 @@ def create_app():
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
+                dbc.Col(dbc.Switch(id="full-day-trading", label="Trading 24h", value=False, className="me-3", labelClassName="text-white"), md="auto"),
                 dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
@@ -490,9 +492,10 @@ def create_app():
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
+        Input("full-day-trading", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(symbol, n_clicks, mode):
+    def update_dashboard(symbol, n_clicks, mode, full_day_trading):
         symbol = (symbol or "BTC/USDT:USDT").strip()
         
         # Fetch latest price
@@ -521,6 +524,8 @@ def create_app():
 
         # Get effective configuration
         config = get_effective_config(symbol, mode or "moderate")
+        # Add full_day_trading to config
+        config['full_day_trading'] = full_day_trading or False
         m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
