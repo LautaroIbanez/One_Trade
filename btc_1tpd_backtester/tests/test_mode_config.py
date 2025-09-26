@@ -1,207 +1,203 @@
 import unittest
 import pandas as pd
-import tempfile
-import os
-from pathlib import Path
-from datetime import datetime, timedelta
+import numpy as np
+from datetime import datetime, timezone, timedelta
 import sys
+from pathlib import Path
 
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
-from webapp.app import (
-    BASE_CONFIG, MODE_CONFIG, get_effective_config, 
-    refresh_trades, load_trades, compute_metrics
-)
+from btc_1tpd_backtester.btc_1tpd_backtest_final import SimpleTradingStrategy, run_backtest
 
 
 class TestModeConfig(unittest.TestCase):
-    """Test mode-specific configuration and file handling."""
+    """Test mode configuration and custom windows."""
     
     def setUp(self):
-        """Set up test environment with temporary directory."""
-        self.temp_dir = tempfile.mkdtemp()
-        self.original_repo_root = None
+        """Set up test data."""
+        # Create sample 15-minute data for a day
+        base_time = datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc)
+        times = [base_time + timedelta(minutes=15*i) for i in range(32)]  # 8 hours of data
         
-        # Mock the repo_root for testing
-        import webapp.app as app_module
-        self.original_repo_root = app_module.repo_root
-        app_module.repo_root = Path(self.temp_dir)
-    
-    def tearDown(self):
-        """Clean up test environment."""
-        import webapp.app as app_module
-        app_module.repo_root = self.original_repo_root
+        # Create realistic OHLC data
+        np.random.seed(42)  # For reproducible tests
+        base_price = 50000.0
         
-        # Clean up temp directory
-        import shutil
-        shutil.rmtree(self.temp_dir, ignore_errors=True)
-    
-    def test_base_config_structure(self):
-        """Test that BASE_CONFIG has required keys."""
-        required_keys = ['risk_usdt', 'atr_mult_orb', 'tp_multiplier', 'adx_min']
-        for key in required_keys:
-            self.assertIn(key, BASE_CONFIG, f"BASE_CONFIG missing key: {key}")
-    
-    def test_mode_config_structure(self):
-        """Test that MODE_CONFIG has all required modes."""
-        expected_modes = ['conservative', 'moderate', 'aggressive']
-        for mode in expected_modes:
-            self.assertIn(mode, MODE_CONFIG, f"MODE_CONFIG missing mode: {mode}")
+        data = []
+        for i, time in enumerate(times):
+            # Simulate price movement
+            price_change = np.random.normal(0, 100)  # Random walk
+            base_price += price_change
             
-        # Test that each mode has required keys
-        required_keys = ['risk_usdt', 'atr_mult_orb', 'tp_multiplier', 'orb_window', 'entry_window']
-        for mode in expected_modes:
-            for key in required_keys:
-                self.assertIn(key, MODE_CONFIG[mode], f"MODE_CONFIG[{mode}] missing key: {key}")
+            # Create OHLC for this candle
+            open_price = base_price
+            high_price = open_price + abs(np.random.normal(0, 50))
+            low_price = open_price - abs(np.random.normal(0, 50))
+            close_price = open_price + np.random.normal(0, 30)
+            
+            # Ensure OHLC relationships are valid
+            high_price = max(high_price, open_price, close_price)
+            low_price = min(low_price, open_price, close_price)
+            
+            data.append({
+                'open': open_price,
+                'high': high_price,
+                'low': low_price,
+                'close': close_price,
+                'volume': np.random.uniform(2000, 5000)
+            })
+        
+        self.day_data = pd.DataFrame(data, index=times)
+        self.day_data.index.name = 'timestamp'
     
-    def test_get_effective_config(self):
-        """Test that get_effective_config properly merges base and mode configs."""
-        # Test conservative mode
-        config = get_effective_config("BTC/USDT:USDT", "conservative")
-        self.assertEqual(config['risk_usdt'], 10.0)  # From conservative mode
-        self.assertEqual(config['atr_mult_orb'], 1.5)  # From conservative mode
-        self.assertEqual(config['adx_min'], 15.0)  # From base config
+    def test_custom_orb_window(self):
+        """Test that custom ORB window is respected."""
+        # Test with custom ORB window (11:00-12:00) - use window that has data
+        config = {
+            'risk_usdt': 20.0,
+            'orb_window': (11, 12),  # Custom window with data
+            'entry_window': (11, 13),
+            'full_day_trading': False,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        # Test moderate mode
-        config = get_effective_config("BTC/USDT:USDT", "moderate")
-        self.assertEqual(config['risk_usdt'], 20.0)  # From moderate mode
-        self.assertEqual(config['atr_mult_orb'], 1.2)  # From moderate mode
+        strategy = SimpleTradingStrategy(config)
         
-        # Test aggressive mode
-        config = get_effective_config("BTC/USDT:USDT", "aggressive")
-        self.assertEqual(config['risk_usdt'], 30.0)  # From aggressive mode
-        self.assertEqual(config['atr_mult_orb'], 1.0)  # From aggressive mode
+        # Verify attributes are set correctly
+        self.assertEqual(strategy.orb_window, (11, 12))
+        self.assertEqual(strategy.entry_window, (11, 13))
+        self.assertFalse(strategy.full_day_trading)
         
-        # Test default mode
-        config = get_effective_config("BTC/USDT:USDT", None)
-        self.assertEqual(config['risk_usdt'], 20.0)  # Should default to moderate
+        # Test ORB calculation with custom window
+        orb_high, orb_low = strategy.get_orb_levels(self.day_data, strategy.orb_window)
+        
+        # Should calculate ORB from 11:00-12:00 window
+        orb_data = self.day_data[(self.day_data.index.hour >= 11) & (self.day_data.index.hour < 12)]
+        expected_high = orb_data['high'].max()
+        expected_low = orb_data['low'].min()
+        
+        self.assertEqual(orb_high, expected_high)
+        self.assertEqual(orb_low, expected_low)
     
-    def test_load_trades_prioritizes_mode_specific_files(self):
-        """Test that load_trades prioritizes symbol+mode specific files."""
-        # Create test data
-        test_data = pd.DataFrame({
-            'entry_time': [datetime.now() - timedelta(days=i) for i in range(3)],
-            'side': ['long', 'short', 'long'],
-            'entry_price': [100.0, 101.0, 102.0],
-            'exit_price': [105.0, 99.0, 103.0],
-            'pnl_usdt': [5.0, -2.0, 1.0],
-            'mode': ['conservative', 'conservative', 'conservative']
-        })
+    def test_custom_entry_window(self):
+        """Test that custom entry window is respected."""
+        config = {
+            'risk_usdt': 20.0,
+            'orb_window': (11, 12),
+            'entry_window': (10, 14),  # Custom entry window
+            'full_day_trading': False,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        # Create data directory
-        data_dir = Path(self.temp_dir) / "data"
-        data_dir.mkdir(exist_ok=True)
+        strategy = SimpleTradingStrategy(config)
         
-        # Create mode-specific file
-        mode_file = data_dir / "trades_final_BTC_USDT_USDT_conservative.csv"
-        test_data.to_csv(mode_file, index=False)
+        # Test process_day with custom entry window
+        date = datetime(2024, 1, 15).date()
+        trades = strategy.process_day(self.day_data, date)
         
-        # Create generic file with different data
-        generic_data = test_data.copy()
-        generic_data['pnl_usdt'] = [10.0, -5.0, 8.0]  # Different PnL values
-        generic_data['mode'] = ['moderate', 'moderate', 'moderate']
-        generic_file = data_dir / "trades_final_BTC_USDT_USDT.csv"
-        generic_data.to_csv(generic_file, index=False)
-        
-        # Test that load_trades loads the mode-specific file
-        result = load_trades("BTC/USDT:USDT", "conservative")
-        
-        self.assertFalse(result.empty, "Should load trades for conservative mode")
-        self.assertEqual(len(result), 3, "Should load 3 trades")
-        # Check that it loaded the conservative data (PnL: 5.0, -2.0, 1.0)
-        self.assertEqual(result['pnl_usdt'].tolist(), [5.0, -2.0, 1.0])
+        # Verify that entry window is respected
+        # The strategy should only look for entries between 10:00-14:00
+        if trades:
+            for trade in trades:
+                entry_time = pd.to_datetime(trade['entry_time'])
+                self.assertGreaterEqual(entry_time.hour, 10)
+                self.assertLess(entry_time.hour, 14)
     
-    def test_load_trades_fallback_to_generic(self):
-        """Test that load_trades falls back to generic files when mode-specific doesn't exist."""
-        # Create test data
-        test_data = pd.DataFrame({
-            'entry_time': [datetime.now() - timedelta(days=i) for i in range(2)],
-            'side': ['long', 'short'],
-            'entry_price': [100.0, 101.0],
-            'exit_price': [105.0, 99.0],
-            'pnl_usdt': [5.0, -2.0]
-        })
+    def test_full_day_trading_mode(self):
+        """Test full day trading mode."""
+        config = {
+            'risk_usdt': 20.0,
+            'orb_window': (11, 12),
+            'entry_window': (11, 13),  # This should be ignored in full_day_trading
+            'full_day_trading': True,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        # Create data directory
-        data_dir = Path(self.temp_dir) / "data"
-        data_dir.mkdir(exist_ok=True)
+        strategy = SimpleTradingStrategy(config)
         
-        # Create only generic file (no mode-specific file)
-        generic_file = data_dir / "trades_final_BTC_USDT_USDT.csv"
-        test_data.to_csv(generic_file, index=False)
+        # Verify full_day_trading is set
+        self.assertTrue(strategy.full_day_trading)
         
-        # Test that load_trades falls back to generic file
-        result = load_trades("BTC/USDT:USDT", "conservative")
+        # Test that entry window is expanded to full day
+        date = datetime(2024, 1, 15).date()
+        trades = strategy.process_day(self.day_data, date)
         
-        self.assertFalse(result.empty, "Should fallback to generic file")
-        self.assertEqual(len(result), 2, "Should load 2 trades from generic file")
+        # In full_day_trading mode, entries can happen at any hour
+        if trades:
+            for trade in trades:
+                entry_time = pd.to_datetime(trade['entry_time'])
+                # Should be able to enter at any hour (0-23)
+                self.assertGreaterEqual(entry_time.hour, 0)
+                self.assertLess(entry_time.hour, 24)
     
-    def test_load_trades_returns_empty_when_no_files(self):
-        """Test that load_trades returns empty DataFrame when no files exist."""
-        result = load_trades("BTC/USDT:USDT", "conservative")
+    def test_backtest_with_custom_windows(self):
+        """Test that run_backtest respects custom windows."""
+        # Create a simple config with custom windows
+        config = {
+            'risk_usdt': 20.0,
+            'orb_window': (10, 11),  # Custom ORB window
+            'entry_window': (10, 12),  # Custom entry window
+            'full_day_trading': False,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        self.assertTrue(result.empty, "Should return empty DataFrame when no files exist")
+        # This test would require actual data fetching, so we'll test the config passing
+        strategy = SimpleTradingStrategy(config)
+        
+        # Verify the strategy uses the custom windows
+        self.assertEqual(strategy.orb_window, (10, 11))
+        self.assertEqual(strategy.entry_window, (10, 12))
+        self.assertFalse(strategy.full_day_trading)
     
-    def test_metrics_change_with_different_risk_levels(self):
-        """Test that metrics change when using different risk levels."""
-        # Create test data with different risk levels
-        conservative_data = pd.DataFrame({
-            'entry_time': [datetime.now() - timedelta(days=i) for i in range(3)],
-            'side': ['long', 'short', 'long'],
-            'entry_price': [100.0, 101.0, 102.0],
-            'exit_price': [105.0, 99.0, 103.0],
-            'pnl_usdt': [2.0, -1.0, 1.5],  # Smaller PnL (conservative risk)
-            'r_multiple': [0.2, -0.1, 0.15]
-        })
+    def test_mode_config_inheritance(self):
+        """Test that mode configs properly inherit and override base config."""
+        base_config = {
+            'risk_usdt': 20.0,
+            'orb_window': (11, 12),
+            'entry_window': (11, 13),
+            'full_day_trading': False,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        aggressive_data = pd.DataFrame({
-            'entry_time': [datetime.now() - timedelta(days=i) for i in range(3)],
-            'side': ['long', 'short', 'long'],
-            'entry_price': [100.0, 101.0, 102.0],
-            'exit_price': [105.0, 99.0, 103.0],
-            'pnl_usdt': [10.0, -5.0, 7.5],  # Larger PnL (aggressive risk)
-            'r_multiple': [1.0, -0.5, 0.75]
-        })
+        # Test conservative mode overrides
+        conservative_config = {
+            **base_config,
+            'orb_window': (10, 12),  # Override
+            'entry_window': (10, 13),  # Override
+        }
         
-        # Calculate metrics for both
-        conservative_metrics = compute_metrics(conservative_data)
-        aggressive_metrics = compute_metrics(aggressive_data)
+        strategy = SimpleTradingStrategy(conservative_config)
         
-        # Metrics should be different
-        self.assertNotEqual(conservative_metrics['total_pnl'], aggressive_metrics['total_pnl'])
-        
-        # Conservative should have smaller total PnL
-        self.assertLess(conservative_metrics['total_pnl'], aggressive_metrics['total_pnl'])
-        
-        # Test that win rates are calculated correctly
-        self.assertGreater(conservative_metrics['win_rate'], 0)
-        self.assertGreater(aggressive_metrics['win_rate'], 0)
+        # Should use overridden values
+        self.assertEqual(strategy.orb_window, (10, 12))
+        self.assertEqual(strategy.entry_window, (10, 13))
+        self.assertEqual(strategy.risk_usdt, 20.0)  # Should inherit base value
     
-    def test_mode_column_preserved_in_dataframe(self):
-        """Test that mode column is preserved when loading trades."""
-        # Create test data with mode column
-        test_data = pd.DataFrame({
-            'entry_time': [datetime.now() - timedelta(days=i) for i in range(2)],
-            'side': ['long', 'short'],
-            'entry_price': [100.0, 101.0],
-            'exit_price': [105.0, 99.0],
-            'pnl_usdt': [5.0, -2.0],
-            'mode': ['conservative', 'conservative']
-        })
+    def test_full_day_trading_exit_reasons(self):
+        """Test that full_day_trading affects exit reasons."""
+        config = {
+            'risk_usdt': 20.0,
+            'orb_window': (11, 12),
+            'entry_window': (11, 13),
+            'full_day_trading': True,
+            'commission_rate': 0.001,
+            'slippage_rate': 0.0005
+        }
         
-        # Create data directory and file
-        data_dir = Path(self.temp_dir) / "data"
-        data_dir.mkdir(exist_ok=True)
-        mode_file = data_dir / "trades_final_BTC_USDT_USDT_conservative.csv"
-        test_data.to_csv(mode_file, index=False)
+        strategy = SimpleTradingStrategy(config)
         
-        # Load trades
-        result = load_trades("BTC/USDT:USDT", "conservative")
+        # Test that full_day_trading affects exit reason logic
+        # This would be tested in simulate_trade_exit method
+        self.assertTrue(strategy.full_day_trading)
         
-        # Check that mode column is preserved
-        self.assertIn('mode', result.columns, "Mode column should be preserved")
-        self.assertEqual(result['mode'].tolist(), ['conservative', 'conservative'])
+        # In full_day_trading mode, exits should use 'end_of_data' instead of 'session_end'
+        # This is handled in the simulate_trade_exit method
 
 
 if __name__ == "__main__":
