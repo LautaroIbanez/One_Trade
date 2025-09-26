@@ -5,7 +5,7 @@ import dash_bootstrap_components as dbc
 from dash import dash_table
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -94,11 +94,11 @@ def refresh_trades(symbol: str, mode: str) -> str:
     try:
         # Determine since date using last available entry_time for this symbol+mode, else 30 days back
         existing_trades = load_trades(symbol, mode)
-        default_since = (datetime.now().date() - pd.Timedelta(days=30)).isoformat()
+        default_since = (datetime.now().date() - timedelta(days=30)).isoformat()
         if not existing_trades.empty and "entry_time" in existing_trades.columns:
             df_dates = pd.to_datetime(existing_trades["entry_time"])  # ensure datetime
             last_date = df_dates.max().date()
-            since = (last_date + pd.Timedelta(days=1)).isoformat()
+            since = (last_date + timedelta(days=1)).isoformat()
         else:
             since = default_since
         
@@ -364,11 +364,11 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
 
 def create_app():
     app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP, dbc.icons.BOOTSTRAP])
-    app.title = "1TPD Web Dashboard"
+    app.title = "One Trade"
 
     navbar = dbc.Navbar(
         dbc.Container([
-            dbc.NavbarBrand("BTC 1 Trade Per Day - Web Dashboard", className="fw-bold"),
+            dbc.NavbarBrand("One Trade", className="fw-bold"),
             dbc.NavbarToggler(id="navbar-toggler"),
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
