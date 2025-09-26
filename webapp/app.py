@@ -16,9 +16,10 @@ if str(repo_root) not in sys.path:
     sys.path.append(str(repo_root))
 
 try:
-    from btc_1tpd_backtester.utils import fetch_historical_data
+    from btc_1tpd_backtester.utils import fetch_historical_data, fetch_latest_price
 except Exception:
     fetch_historical_data = None
+    fetch_latest_price = None
 
 try:
     from btc_1tpd_backtester.signals.today_signal import get_today_trade_recommendation
@@ -36,7 +37,9 @@ BASE_CONFIG = {
     "tp_multiplier": 2.0, 
     "adx_min": 15.0,
     "commission_rate": 0.001,  # 0.1% default
-    "slippage_rate": 0.0005    # 0.05% default
+    "slippage_rate": 0.0005,   # 0.05% default
+    "initial_capital": 1000.0, # Initial capital in USDT
+    "leverage": 1.0            # Leverage multiplier
 }
 MODE_CONFIG = {
     "conservative": {
@@ -46,7 +49,9 @@ MODE_CONFIG = {
         "orb_window": (11, 12), 
         "entry_window": (11, 13),
         "commission_rate": 0.0008,  # Lower commission for conservative
-        "slippage_rate": 0.0003
+        "slippage_rate": 0.0003,
+        "initial_capital": 1000.0,
+        "leverage": 1.0
     },
     "moderate": {
         "risk_usdt": 20.0, 
@@ -55,7 +60,9 @@ MODE_CONFIG = {
         "orb_window": (11, 12), 
         "entry_window": (11, 13),
         "commission_rate": 0.001,   # Standard commission
-        "slippage_rate": 0.0005
+        "slippage_rate": 0.0005,
+        "initial_capital": 1000.0,
+        "leverage": 1.0
     },
     "aggressive": {
         "risk_usdt": 30.0, 
@@ -64,7 +71,9 @@ MODE_CONFIG = {
         "orb_window": (10, 12), 
         "entry_window": (10, 13),
         "commission_rate": 0.0012,  # Higher commission for aggressive
-        "slippage_rate": 0.0008
+        "slippage_rate": 0.0008,
+        "initial_capital": 1000.0,
+        "leverage": 1.0
     },
 }
 
@@ -215,9 +224,13 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
     return pd.DataFrame()
 
 
-def compute_metrics(trades: pd.DataFrame) -> dict:
+def compute_metrics(trades: pd.DataFrame, initial_capital: float = 1000.0, leverage: float = 1.0) -> dict:
     if trades.empty:
-        return {"total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0, "avg_risk_per_trade": 0.0, "dd_in_r": 0.0}
+        return {
+            "total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0, 
+            "avg_risk_per_trade": 0.0, "dd_in_r": 0.0, "initial_capital": initial_capital,
+            "current_capital": initial_capital, "roi": 0.0, "leverage": leverage
+        }
     df = trades.copy()
     if "entry_time" in df.columns:
         df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
@@ -238,7 +251,17 @@ def compute_metrics(trades: pd.DataFrame) -> dict:
                 risk_estimates.append(abs(pnl / r))
     avg_risk = float(pd.Series(risk_estimates).mean()) if risk_estimates else 0.0
     dd_in_r = (max_drawdown / avg_risk) if avg_risk else 0.0
-    return {"total_trades": total_trades, "win_rate": win_rate, "total_pnl": total_pnl, "max_drawdown": max_drawdown, "avg_risk_per_trade": avg_risk, "dd_in_r": dd_in_r}
+    
+    # Capital metrics
+    current_capital = initial_capital + total_pnl
+    roi = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
+    
+    return {
+        "total_trades": total_trades, "win_rate": win_rate, "total_pnl": total_pnl, 
+        "max_drawdown": max_drawdown, "avg_risk_per_trade": avg_risk, "dd_in_r": dd_in_r,
+        "initial_capital": initial_capital, "current_capital": current_capital, 
+        "roi": roi, "leverage": leverage
+    }
 
 
 def figure_equity_curve(trades: pd.DataFrame):
@@ -384,6 +407,11 @@ def create_app():
         dbc.Alert(id="alert", is_open=False, color="warning"),
 
         dbc.Card([
+            dbc.CardHeader("Precio Actual"),
+            dbc.CardBody(id="current-price"),
+        ], className="mb-4"),
+
+        dbc.Card([
             dbc.CardHeader("Recomendación de hoy"),
             dbc.CardBody(id="today-reco"),
         ], className="mb-4"),
@@ -402,32 +430,51 @@ def create_app():
             dcc.Tab(label="Win/Loss", children=[dcc.Loading(children=dcc.Graph(id="winloss-fig"), type="dot")]),
             dcc.Tab(label="Price Chart", children=[dcc.Loading(children=dcc.Graph(id="price-fig"), type="dot")]),
             dcc.Tab(label="Trades", children=[
-                dash_table.DataTable(
-                    id="trades-table",
-                    columns=[
-                        {"name": "Entry Time", "id": "entry_time", "type": "datetime"},
-                        {"name": "Side", "id": "side"},
-                        {"name": "Entry", "id": "entry_price", "type": "numeric", "format": {"specifier": ".2f"}},
-                        {"name": "Exit", "id": "exit_price", "type": "numeric", "format": {"specifier": ".2f"}},
-                        {"name": "PnL Net (USDT)", "id": "pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
-                        {"name": "PnL Gross (USDT)", "id": "gross_pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
-                        {"name": "Commission (USDT)", "id": "commission_usdt", "type": "numeric", "format": {"specifier": ".2f"}},
-                        {"name": "Slippage (USDT)", "id": "slippage_usdt", "type": "numeric", "format": {"specifier": ".2f"}},
-                        {"name": "R", "id": "r_multiple", "type": "numeric", "format": {"specifier": "+.2f"}},
-                        {"name": "Exit Time", "id": "exit_time", "type": "datetime"},
-                        {"name": "Reason", "id": "exit_reason"},
-                    ],
-                    page_size=10,
-                    sort_action="native",
-                    filter_action="native",
-                    style_cell={"padding": "6px", "fontSize": 12},
-                    style_table={"overflowX": "auto"},
-                )
+                dbc.Card([
+                    dbc.CardHeader([
+                        html.H6("Historial de Operaciones", className="mb-0"),
+                        html.Small("Detalle de todas las operaciones ejecutadas", className="text-muted")
+                    ]),
+                    dbc.CardBody([
+                        html.Div([
+                            html.H6("Descripción de Columnas:", className="mb-2"),
+                            html.Ul([
+                                html.Li([html.Strong("Entry Time: "), "Momento de entrada a la operación"]),
+                                html.Li([html.Strong("Side: "), "Dirección de la operación (Long/Short)"]),
+                                html.Li([html.Strong("Entry: "), "Precio de entrada"]),
+                                html.Li([html.Strong("Exit: "), "Precio de salida"]),
+                                html.Li([html.Strong("PnL: "), "Ganancia/pérdida neta en USDT"]),
+                                html.Li([html.Strong("R: "), "Múltiplo de riesgo (ganancia/pérdida vs riesgo asumido)"]),
+                                html.Li([html.Strong("Exit Time: "), "Momento de salida de la operación"]),
+                                html.Li([html.Strong("Reason: "), "Razón de salida (take_profit, stop_loss, session_end)"])
+                            ], className="mb-3")
+                        ]),
+                        dash_table.DataTable(
+                            id="trades-table",
+                            columns=[
+                                {"name": "Entry Time", "id": "entry_time", "type": "datetime"},
+                                {"name": "Side", "id": "side"},
+                                {"name": "Entry", "id": "entry_price", "type": "numeric", "format": {"specifier": ".2f"}},
+                                {"name": "Exit", "id": "exit_price", "type": "numeric", "format": {"specifier": ".2f"}},
+                                {"name": "PnL (USDT)", "id": "pnl_usdt", "type": "numeric", "format": {"specifier": "+.2f"}},
+                                {"name": "R", "id": "r_multiple", "type": "numeric", "format": {"specifier": "+.2f"}},
+                                {"name": "Exit Time", "id": "exit_time", "type": "datetime"},
+                                {"name": "Reason", "id": "exit_reason"},
+                            ],
+                            page_size=10,
+                            sort_action="native",
+                            filter_action="native",
+                            style_cell={"padding": "6px", "fontSize": 12},
+                            style_table={"overflowX": "auto"},
+                        )
+                    ])
+                ])
             ]),
         ]),
     ], fluid=True)
 
     @app.callback(
+        Output("current-price", "children"),
         Output("today-reco", "children"),
         Output("metrics", "children"),
         Output("equity-fig", "figure"),
@@ -448,6 +495,14 @@ def create_app():
     def update_dashboard(symbol, n_clicks, mode):
         symbol = (symbol or "BTC/USDT:USDT").strip()
         
+        # Fetch latest price
+        price_info = None
+        if fetch_latest_price is not None:
+            try:
+                price_info = fetch_latest_price(symbol)
+            except Exception as e:
+                print(f"Error fetching latest price: {e}")
+        
         # Refresh trades data first
         refresh_msg = ""
         try:
@@ -464,26 +519,80 @@ def create_app():
         elif refresh_msg and "Error" in refresh_msg:
             alert_msg = f"Error en modo {mode_display}: {refresh_msg}"
 
-        m = compute_metrics(trades)
-        def kpi_card(title: str, value: str, color: str, icon: str):
-            return dbc.Col(dbc.Card([
+        # Get effective configuration
+        config = get_effective_config(symbol, mode or "moderate")
+        m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
+        def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
+            help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
+            title_with_help = html.Div([
+                html.I(className=f"bi {icon} me-2"), 
+                html.Small(title, className="text-muted"),
+                help_icon
+            ])
+            
+            card_content = dbc.Card([
                 dbc.CardBody([
-                    html.Div([html.I(className=f"bi {icon} me-2"), html.Small(title, className="text-muted")]),
+                    title_with_help,
                     html.H4(value, className=f"mt-2 text-{color}"),
                 ])
-            ], className="shadow-sm"), md=3, sm=6, xs=12)
+            ], className="shadow-sm")
+            
+            if description and tooltip_id:
+                return dbc.Col([
+                    card_content,
+                    dbc.Tooltip(description, target=tooltip_id, placement="top")
+                ], md=3, sm=6, xs=12)
+            else:
+                return dbc.Col(card_content, md=3, sm=6, xs=12)
 
         win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
         pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
         dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
+        roi_color = "success" if m['roi'] >= 0 else "danger"
 
         metrics_children = dbc.Row([
-            kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection"),
-            kpi_card("Win rate", f"{m['win_rate']:.1f}%", win_color, "bi-bullseye"),
-            kpi_card("PnL", f"{m['total_pnl']:+,.2f} USDT", pnl_color, "bi-cash-stack"),
-            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down"),
-            kpi_card("Riesgo/trade", f"{m['avg_risk_per_trade']:.2f} USDT", "info", "bi-shield"),
+            kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection", 
+                    "Número total de operaciones ejecutadas", "tooltip-trades"),
+            kpi_card("Win rate", f"{m['win_rate']:.1f}%", win_color, "bi-bullseye", 
+                    "Porcentaje de operaciones ganadoras vs perdedoras", "tooltip-winrate"),
+            kpi_card("PnL", f"{m['total_pnl']:+,.2f} USDT", pnl_color, "bi-cash-stack", 
+                    "Ganancia o pérdida total en USDT", "tooltip-pnl"),
+            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down", 
+                    "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)", "tooltip-dd"),
+            kpi_card("Riesgo/trade", f"{m['avg_risk_per_trade']:.2f} USDT", "info", "bi-shield", 
+                    "Promedio de riesgo por operación en USDT", "tooltip-risk"),
+            kpi_card("ROI", f"{m['roi']:+.1f}%", roi_color, "bi-graph-up", 
+                    "Retorno sobre inversión inicial", "tooltip-roi"),
         ], className="g-3")
+        
+        # Capital information section
+        capital_info = dbc.Row([
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("Información de Capital", className="card-title"),
+                        html.P([
+                            html.Strong("Capital inicial: "), f"{m['initial_capital']:,.2f} USDT", html.Br(),
+                            html.Strong("Capital actual: "), f"{m['current_capital']:,.2f} USDT", html.Br(),
+                            html.Strong("Apalancamiento: "), f"{m['leverage']:.1f}x", html.Br(),
+                            html.Strong("Inversión efectiva: "), f"{m['initial_capital'] * m['leverage']:,.2f} USDT"
+                        ])
+                    ])
+                ], className="shadow-sm")
+            ], md=6),
+            dbc.Col([
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6("Resumen de Rendimiento", className="card-title"),
+                        html.P([
+                            html.Strong("ROI: "), f"{m['roi']:+.2f}%", html.Br(),
+                            html.Strong("PnL vs Capital: "), f"{(m['total_pnl']/m['initial_capital']*100):+.2f}%", html.Br(),
+                            html.Strong("Drawdown máximo: "), f"{abs(m['max_drawdown']/m['initial_capital']*100):.2f}% del capital"
+                        ])
+                    ])
+                ], className="shadow-sm")
+            ], md=6)
+        ], className="g-3 mb-4")
 
         eq = figure_equity_curve(trades)
         pnl = figure_pnl_distribution(trades)
@@ -524,6 +633,28 @@ def create_app():
             except Exception:
                 pass
 
+        # Current price display
+        if price_info and price_info.get('price'):
+            price_display = html.Div([
+                html.Div([
+                    html.H4(f"${price_info['price']:,.2f}", className="text-primary mb-1"),
+                    html.Small(f"{symbol} • {price_info['timestamp'].strftime('%H:%M:%S UTC')}", className="text-muted")
+                ], className="d-flex justify-content-between align-items-center"),
+                html.Hr(className="my-2"),
+                html.Div([
+                    html.Small([
+                        html.Strong("Bid: "), f"${price_info.get('bid', 0):,.2f}" if price_info.get('bid') is not None else "N/A", " • ",
+                        html.Strong("Ask: "), f"${price_info.get('ask', 0):,.2f}" if price_info.get('ask') is not None else "N/A", " • ",
+                        html.Strong("Vol: "), f"{price_info.get('volume', 0):,.0f}"
+                    ], className="text-muted")
+                ])
+            ])
+        else:
+            price_display = html.Div([
+                html.P("No se pudo obtener el precio actual", className="text-muted mb-0"),
+                html.Small(f"{symbol} • {datetime.now().strftime('%H:%M:%S UTC')}", className="text-muted")
+            ])
+
         # If no data, still return empty figures but show alert clearly
         table_data = []
         if not trades.empty:
@@ -537,12 +668,12 @@ def create_app():
                     tbl[col] = pd.to_datetime(tbl[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
             # Columns to show (only those that exist)
             desired_cols = [
-                "entry_time", "symbol", "side", "qty", "entry_price", "exit_price", "pnl_usdt", "gross_pnl_usdt", "commission_usdt", "slippage_usdt", "r_multiple", "exit_time", "exit_reason"
+                "entry_time", "side", "entry_price", "exit_price", "pnl_usdt", "r_multiple", "exit_time", "exit_reason"
             ]
             cols = [c for c in desired_cols if c in tbl.columns]
             table_data = tbl[cols].to_dict("records")
 
-        return reco_children, metrics_children, eq, pnl, dd, tl, mon, wl, price_fig, table_data, bool(alert_msg), alert_msg
+        return price_display, reco_children, [capital_info, metrics_children], eq, pnl, dd, tl, mon, wl, price_fig, table_data, bool(alert_msg), alert_msg
 
     return app
 
