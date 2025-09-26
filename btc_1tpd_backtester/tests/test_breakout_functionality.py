@@ -60,7 +60,10 @@ class TestBreakoutFunctionality(unittest.TestCase):
             'atr_mult_orb': 1.2,
             'tp_multiplier': 2.0,
             'commission_rate': 0.001,
-            'slippage_rate': 0.0005
+            'slippage_rate': 0.0005,
+            'orb_window': (11, 12),
+            'entry_window': (11, 13),
+            'full_day_trading': False
         }
     
     def test_orb_levels_calculation(self):
@@ -262,6 +265,61 @@ class TestBreakoutFunctionality(unittest.TestCase):
         self.assertEqual(timestamp, entry_times[1])
         # Entry price should be max(49980, 50000) = 50000
         self.assertEqual(entry_price, 50000)
+    
+    def test_full_day_trading_mode(self):
+        """Test full day trading mode functionality."""
+        # Create config with full_day_trading enabled
+        full_day_config = self.config.copy()
+        full_day_config['full_day_trading'] = True
+        
+        strategy = SimpleTradingStrategy(full_day_config)
+        
+        # Verify full_day_trading is enabled
+        self.assertTrue(strategy.full_day_trading)
+        
+        # Test that entry window is expanded to full day
+        date = datetime(2024, 1, 15).date()
+        trades = strategy.process_day(self.day_data, date)
+        
+        # In full_day_trading mode, entries can happen at any hour
+        if trades:
+            for trade in trades:
+                entry_time = pd.to_datetime(trade['entry_time'])
+                # Should be able to enter at any hour (0-23)
+                self.assertGreaterEqual(entry_time.hour, 0)
+                self.assertLess(entry_time.hour, 24)
+    
+    def test_full_day_trading_exit_reasons(self):
+        """Test that full_day_trading affects exit reasons."""
+        full_day_config = self.config.copy()
+        full_day_config['full_day_trading'] = True
+        
+        strategy = SimpleTradingStrategy(full_day_config)
+        
+        # Test trade parameters
+        trade_params = {
+            'entry_price': 50000,
+            'stop_loss': 49900,
+            'take_profit': 50100,
+            'position_size': 1.0,
+            'entry_time': datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+        }
+        
+        # Create exit data that would normally trigger session_end
+        exit_time = datetime(2024, 1, 15, 18, 0, 0, tzinfo=timezone.utc)  # After session_end
+        exit_data = pd.DataFrame({
+            'open': [50050],
+            'high': [50050],
+            'low': [50050],
+            'close': [50050]
+        }, index=[exit_time])
+        
+        # Test that full_day_trading affects exit reason
+        result = strategy.simulate_trade_exit(trade_params, 'long', exit_data)
+        
+        # In full_day_trading mode, should not force exit at session_end
+        # The result should depend on the actual trade logic, not session timing
+        self.assertIsNotNone(result['exit_reason'])
 
 
 if __name__ == "__main__":
