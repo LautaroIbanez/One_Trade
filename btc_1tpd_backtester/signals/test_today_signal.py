@@ -68,6 +68,43 @@ class TestTodaySignal(unittest.TestCase):
         allowed = {"no_data", "session_closed", "session_closed_triggered", "session_closed_params_unavailable"}
         self.assertIn(result["status"], allowed)
 
+    def test_full_day_trading_entry_window(self):
+        """Test that entry_window=(0, 24) works correctly without exceptions."""
+        # Use a fixed time to avoid live data dependency
+        now = datetime(2024, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+        config = {
+            "risk_usdt": 10.0, 
+            "atr_mult_orb": 1.2, 
+            "tp_multiplier": 2.0, 
+            "adx_min": 15.0,
+            "orb_window": (11, 12),
+            "entry_window": (0, 24),  # Full day trading
+            "full_day_trading": True
+        }
+
+        # Test that the function runs without exceptions
+        try:
+            result = get_today_trade_recommendation("BTC/USDT:USDT", config, now=now)
+            
+            # Verify the result has the expected structure
+            required_keys = {
+                "status", "symbol", "date", "macro_bias",
+                "orb_high", "orb_low", "notes"
+            }
+            self.assertTrue(required_keys.issubset(result.keys()))
+            
+            # Verify the result is a valid state (not an error)
+            valid_statuses = [
+                "awaiting_orb", "no_orb_levels", "awaiting_breakout", 
+                "long", "short", "no_data", "no_breakout",
+                "trigger_detected_params_unavailable", "session_closed",
+                "session_closed_triggered", "session_closed_params_unavailable"
+            ]
+            self.assertIn(result["status"], valid_statuses)
+            
+        except Exception as e:
+            self.fail(f"get_today_trade_recommendation raised an exception with entry_window=(0, 24): {e}")
+
 
 if __name__ == "__main__":
     unittest.main()
