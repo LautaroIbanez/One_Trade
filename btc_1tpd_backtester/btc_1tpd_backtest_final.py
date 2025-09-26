@@ -32,6 +32,11 @@ class SimpleTradingStrategy:
         self.atr_mult = config.get('atr_mult_orb', 1.2)
         self.tp_multiplier = config.get('tp_multiplier', 2.0)
         
+        # Trading windows
+        self.orb_window = config.get('orb_window', (11, 12))
+        self.entry_window = config.get('entry_window', (11, 13))
+        self.full_day_trading = config.get('full_day_trading', False)
+        
         # Commission and slippage costs
         self.commission_rate = config.get('commission_rate', 0.001)  # 0.1% default
         self.slippage_rate = config.get('slippage_rate', 0.0005)     # 0.05% default
@@ -139,7 +144,8 @@ class SimpleTradingStrategy:
             # Exit at end of day
             exit_time = day_data.index[-1]
             exit_price = day_data['close'].iloc[-1]
-            exit_reason = 'session_end'
+            # Use session_end only if not in full_day_trading mode
+            exit_reason = 'session_end' if not self.full_day_trading else 'end_of_data'
         else:
             # Evaluate each candle sequentially
             exit_time = None
@@ -221,7 +227,8 @@ class SimpleTradingStrategy:
             if exit_time is None:
                 exit_time = remaining_data.index[-1]
                 exit_price = remaining_data['close'].iloc[-1]
-                exit_reason = 'session_end'
+                # Use session_end only if not in full_day_trading mode
+                exit_reason = 'session_end' if not self.full_day_trading else 'end_of_data'
         
         # Calculate gross PnL
         if side == 'long':
@@ -260,7 +267,7 @@ class SimpleTradingStrategy:
             'r_multiple': r_multiple
         }
     
-    def process_day(self, day_data, date, orb_window=(11, 12), entry_window=(11, 13)):
+    def process_day(self, day_data, date):
         """Process trading for a single day."""
         trades = []
         
@@ -270,11 +277,17 @@ class SimpleTradingStrategy:
         if len(day_data) < 50:  # Need enough data for indicators
             return trades
         
-        # Get ORB levels
-        orb_high, orb_low = self.get_orb_levels(day_data, orb_window)
+        # Get ORB levels using configured window
+        orb_high, orb_low = self.get_orb_levels(day_data, self.orb_window)
         
         if orb_high is None or orb_low is None:
             return trades
+        
+        # Determine entry window based on full_day_trading flag
+        if self.full_day_trading:
+            entry_window = (0, 24)  # Full day trading
+        else:
+            entry_window = self.entry_window
         
         # Entry window configurable
         ew_start, ew_end = entry_window
