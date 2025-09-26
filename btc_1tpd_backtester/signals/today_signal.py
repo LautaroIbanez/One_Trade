@@ -118,12 +118,22 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
     # ORB levels
     orb_high, orb_low = _compute_orb_levels(day_15m, orb_window)
 
+    # Calculate window boundaries using timedelta
+    orb_start = day_start + timedelta(hours=orb_window[0])
+    orb_end = day_start + timedelta(hours=orb_window[1])
+    
+    entry_start = day_start + timedelta(hours=entry_window_hours[0])
+    if entry_window_hours[1] == 24:
+        entry_end = day_start + timedelta(days=1)
+    else:
+        entry_end = day_start + timedelta(hours=entry_window_hours[1])
+
     # Session times
-    minutes_to_orb = max(0, int((day_start.replace(hour=orb_window[0], minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
-    minutes_to_close = max(0, int((day_start.replace(hour=entry_window_hours[1], minute=0, second=0, microsecond=0) - now_utc).total_seconds() // 60))
+    minutes_to_orb = max(0, int((orb_start - now_utc).total_seconds() // 60))
+    minutes_to_close = max(0, int((entry_end - now_utc).total_seconds() // 60))
 
     # Before ORB window starts
-    if now_utc < day_start.replace(hour=orb_window[0], minute=0, second=0, microsecond=0):
+    if now_utc < orb_start:
         return Recommendation(
             status="awaiting_orb",
             symbol=symbol,
@@ -133,11 +143,11 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
             orb_low=orb_low,
             minutes_to_orb=minutes_to_orb,
             minutes_to_close=minutes_to_close,
-            notes=f"Esperando ventana ORB ({orb_window[0]:02d}:00–{orb_window[1]:02d}:00 UTC)"
+            notes=f"Esperando ventana ORB ({orb_start.strftime('%H:%M')}–{orb_end.strftime('%H:%M')} UTC)"
         ).__dict__
 
-    # During entry window 11:00–13:00 UTC
-    if day_start.replace(hour=entry_window_hours[0]) <= now_utc < day_start.replace(hour=entry_window_hours[1]):
+    # During entry window
+    if entry_start <= now_utc < entry_end:
         if orb_high is None or orb_low is None:
             return Recommendation(
                 status="no_orb_levels",
@@ -145,7 +155,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
                 date=day_start.date().isoformat(),
                 macro_bias=macro_bias,
                 minutes_to_close=minutes_to_close,
-                notes="Aún sin niveles ORB dentro de 11:00–12:00 UTC"
+                notes=f"Aún sin niveles ORB dentro de {orb_start.strftime('%H:%M')}–{orb_end.strftime('%H:%M')} UTC"
             ).__dict__
 
         side, breakout_time, entry_price = _find_breakout_in_entry_window(day_15m, orb_high, orb_low, entry_window_hours)
@@ -158,7 +168,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
                 orb_high=orb_high,
                 orb_low=orb_low,
                 minutes_to_close=minutes_to_close,
-                notes=f"Sin ruptura aún dentro de {entry_window_hours[0]:02d}:00–{entry_window_hours[1]:02d}:00 UTC"
+                notes=f"Sin ruptura aún dentro de {entry_start.strftime('%H:%M')}–{entry_end.strftime('%H:%M')} UTC"
             ).__dict__
 
         # Compute SL/TP using SimpleTradingStrategy
@@ -196,7 +206,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict, now: Optional[date
         ).__dict__
 
     # After entry window
-    if now_utc >= day_start.replace(hour=entry_window_hours[1]):
+    if now_utc >= entry_end:
         # Session closed; check if a valid breakout occurred earlier in the window
         if orb_high is not None and orb_low is not None:
             side, breakout_time, entry_price = _find_breakout_in_entry_window(day_15m, orb_high, orb_low, entry_window_hours)
