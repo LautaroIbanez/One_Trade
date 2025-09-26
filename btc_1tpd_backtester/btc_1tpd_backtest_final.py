@@ -66,17 +66,23 @@ class SimpleTradingStrategy:
         return orb_high, orb_low
     
     def check_breakout(self, entry_data, orb_high, orb_low):
-        """Check for ORB breakouts."""
+        """Check for ORB breakouts by comparing high/low against orb levels."""
         for timestamp, row in entry_data.iterrows():
-            current_price = row['close']
+            high_price = row['high']
+            low_price = row['low']
+            open_price = row['open']
             
-            # Long breakout
-            if current_price > orb_high:
-                return 'long', timestamp, current_price
+            # Long breakout: high pierces orb_high
+            if high_price > orb_high:
+                # Entry price reflects the breakout (max of open and orb_high)
+                entry_price = max(open_price, orb_high)
+                return 'long', timestamp, entry_price
             
-            # Short breakout
-            elif current_price < orb_low:
-                return 'short', timestamp, current_price
+            # Short breakout: low pierces orb_low
+            elif low_price < orb_low:
+                # Entry price reflects the breakout (min of open and orb_low)
+                entry_price = min(open_price, orb_low)
+                return 'short', timestamp, entry_price
         
         return None, None, None
     
