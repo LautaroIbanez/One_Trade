@@ -34,7 +34,7 @@ class TradingStrategy:
         
         # Trading windows and full day trading
         self.orb_window = config.get('orb_window', (11, 12))
-        self.entry_window = config.get('entry_window', (11, 13))
+        self.entry_window = config.get('entry_window', (11, 18))  # Extended to 18:00 UTC
         self.full_day_trading = config.get('full_day_trading', False)
         
         # Session times (UTC) - use configured windows or defaults
@@ -46,7 +46,8 @@ class TradingStrategy:
         
         # Adjust entry window for full day trading
         if self.full_day_trading:
-            self.entry_start = 0
+            # Ensure entry starts after ORB ends and goes until 24:00
+            self.entry_start = max(self.orb_window[1], self.entry_window[0])
             self.entry_end = 24
         
         # Daily state

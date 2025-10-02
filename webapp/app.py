@@ -56,7 +56,7 @@ MODE_CONFIG = {
         "atr_mult_orb": 1.5, 
         "tp_multiplier": 1.5, 
         "orb_window": (11, 12), 
-        "entry_window": (11, 13),
+        "entry_window": (11, 18),  # Extended to 18:00 UTC
         "commission_rate": 0.0008,  # Lower commission for conservative
         "slippage_rate": 0.0003,
         "initial_capital": 1000.0,
@@ -64,7 +64,7 @@ MODE_CONFIG = {
         "full_day_overrides": {
             "risk_usdt": 15.0,  # Slightly higher risk for 24h
             "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 23),  # Can enter throughout the day
+            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
             "commission_rate": 0.001,  # Higher commission for 24h trading
             "slippage_rate": 0.0005
         }
@@ -74,7 +74,7 @@ MODE_CONFIG = {
         "atr_mult_orb": 1.2, 
         "tp_multiplier": 2.0, 
         "orb_window": (11, 12), 
-        "entry_window": (11, 13),
+        "entry_window": (11, 18),  # Extended to 18:00 UTC
         "commission_rate": 0.001,   # Standard commission
         "slippage_rate": 0.0005,
         "initial_capital": 1000.0,
@@ -82,7 +82,7 @@ MODE_CONFIG = {
         "full_day_overrides": {
             "risk_usdt": 25.0,  # Higher risk for 24h
             "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 23),  # Can enter throughout the day
+            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
             "commission_rate": 0.0012,  # Higher commission for 24h trading
             "slippage_rate": 0.0008
         },
@@ -94,7 +94,7 @@ MODE_CONFIG = {
         "atr_mult_orb": 1.0, 
         "tp_multiplier": 2.5, 
         "orb_window": (10, 12), 
-        "entry_window": (10, 13),
+        "entry_window": (10, 18),  # Extended to 18:00 UTC
         "commission_rate": 0.0012,  # Higher commission for aggressive
         "slippage_rate": 0.0008,
         "initial_capital": 1000.0,
@@ -102,7 +102,7 @@ MODE_CONFIG = {
         "full_day_overrides": {
             "risk_usdt": 40.0,  # Even higher risk for 24h
             "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 23),  # Can enter throughout the day
+            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
             "commission_rate": 0.0015,  # Highest commission for 24h trading
             "slippage_rate": 0.001
         }
@@ -344,13 +344,25 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
         
         # Save combined DataFrame
         combined.to_csv(filename, index=False)
-        # Write sidecar meta with last_backtest_until, symbol, mode and full_day_trading
+        # Write sidecar meta with last_backtest_until, symbol, mode, full_day_trading and last_trade_date
         try:
             import json as _json
             base_no_ext = filename.with_suffix("")
             sidecar_out = Path(str(base_no_ext) + "_meta.json")
+            
+            # Calculate last_trade_date from actual trades
+            last_trade_date = None
+            if not combined.empty and "entry_time" in combined.columns:
+                try:
+                    max_entry = pd.to_datetime(combined["entry_time"]).max()
+                    if pd.notna(max_entry):
+                        last_trade_date = max_entry.date().isoformat()
+                except Exception:
+                    pass
+            
             meta_payload = {
                 "last_backtest_until": until,
+                "last_trade_date": last_trade_date,  # Last actual trade date
                 "symbol": symbol,
                 "mode": mode,
                 "full_day_trading": bool(full_day_trading),
@@ -424,16 +436,25 @@ def load_trades(symbol: str | None = None, mode: str | None = None, full_day_tra
                 import json as _json
                 meta = _json.loads(meta_path.read_text(encoding="utf-8"))
                 last_until = meta.get("last_backtest_until")
-                if "entry_time" not in df.columns or df["entry_time"].isna().all():
-                    raise ValueError("No entry_time column")
-                max_entry = pd.to_datetime(df["entry_time"]).max()
-                if pd.isna(max_entry):
-                    raise ValueError("Invalid entry_time")
-                max_entry_date = max_entry.date().isoformat()
+                last_trade_date = meta.get("last_trade_date")  # New field for last actual trade
                 today_date = datetime.now(timezone.utc).date().isoformat()
-                # Require max_entry_date <= today and equal to sidecar last_until
-                if max_entry_date > today_date or (last_until is not None and max_entry_date != last_until):
-                    print(f"⚠️ Stale or mismatched file ignored: {path} (max_entry={max_entry_date}, last_until={last_until})")
+                
+                # Check if sidecar covers current session
+                if last_until is not None and last_until >= today_date:
+                    # File is fresh, but check if we have actual trades
+                    if "entry_time" in df.columns and not df["entry_time"].isna().all():
+                        max_entry = pd.to_datetime(df["entry_time"]).max()
+                        if pd.notna(max_entry):
+                            max_entry_date = max_entry.date().isoformat()
+                            # Accept if max_entry_date <= today (not future) and sidecar covers today
+                            if max_entry_date > today_date:
+                                print(f"⚠️ Future entry date ignored: {path} (max_entry={max_entry_date})")
+                                continue
+                        # If no valid entry_time or empty, but sidecar covers today, accept empty file
+                    # If no entry_time column but sidecar is fresh, accept the file
+                else:
+                    # Sidecar doesn't cover current session, reject
+                    print(f"⚠️ Stale sidecar ignored: {path} (last_until={last_until}, today={today_date})")
                     continue
             except Exception as e:
                 print(f"⚠️ Freshness validation failed for {path}: {e}")

@@ -3,14 +3,11 @@
   "symbol": "BTC/USDT:USDT",
   "date": "2025-10-02",
   "macro_bias": "neutral",
-  "side": "long",
-  "entry_time": "2025-10-02T11:00:00+00:00",
-  "entry_price": 118500.1,
-  "stop_loss": 118450.5142857143,
-  "take_profit": 118582.74285714286,
-  "orb_high": null,
-  "orb_low": null,
-  "notes": "Trade forzado por fallback EMA15",
-  "from_cache": false,
-  "used_fallback": true
+  "side": "short",
+  "entry_time": "2025-10-02T01:00:00+00:00",
+  "entry_price": 118367.0,
+  "orb_high": 119457.0,
+  "orb_low": 118367.0,
+  "notes": "ORB breakout detected",
+  "from_cache": false
 }

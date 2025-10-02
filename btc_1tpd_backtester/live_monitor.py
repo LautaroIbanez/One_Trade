@@ -67,7 +67,8 @@ def detect_or_update_active_trade(symbol: str, mode: str, full_day_trading: bool
     status = (rec.get("status") or "").lower()
     side = (rec.get("side") or "").lower()
     # Only persist if we have an actionable signal with params
-    if status in {"long", "short"} and side in {"long", "short"}:
+    # Accept both direct status and "signal" status
+    if (status in {"long", "short", "signal"}) and side in {"long", "short"}:
         entry_price = float(rec.get("entry_price")) if rec.get("entry_price") is not None else None
         stop_loss = float(rec.get("stop_loss")) if rec.get("stop_loss") is not None else None
         take_profit = float(rec.get("take_profit")) if rec.get("take_profit") is not None else None

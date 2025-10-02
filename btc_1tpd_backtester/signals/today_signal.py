@@ -64,7 +64,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
         "tp_multiplier": 2.0,
         "adx_min": 15.0,
         "orb_window": (11, 12),
-        "entry_window": (11, 13),
+        "entry_window": (11, 18),  # Extended to 18:00 UTC
         "full_day_trading": False
     }
     
