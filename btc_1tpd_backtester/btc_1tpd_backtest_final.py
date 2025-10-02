@@ -98,7 +98,7 @@ class SimpleTradingStrategy:
         """Lightweight EMA15 pullback fallback similar to strategy.py."""
         try:
             if len(ltf_data) < 15:
-                return False, None
+                return False, None, None
             ema15 = ltf_data['close'].ewm(span=15, adjust=False).mean().iloc[-1]
             current_price = ltf_data['close'].iloc[-1]
             if side == 'long':
@@ -106,7 +106,7 @@ class SimpleTradingStrategy:
             else:
                 pullback_ok = current_price >= ema15 * 0.999
             if not pullback_ok:
-                return False, None
+                return False, None, None
             # Simple risk params using ATR proxy
             if len(ltf_data) >= 14:
                 tr_high = ltf_data['high'].rolling(14).max().iloc[-1]
@@ -115,7 +115,7 @@ class SimpleTradingStrategy:
             else:
                 atr_proxy = None
             if atr_proxy is None or pd.isna(atr_proxy) or atr_proxy <= 0:
-                return False, None
+                return False, None, None
             entry_price = current_price
             if side == 'long':
                 stop_loss = entry_price - (atr_proxy * self.atr_mult)
@@ -637,6 +637,47 @@ class SimpleTradingStrategy:
                     side = fallback_side
                     trade_params = fb_params
                     break
+        
+        # Deterministic final fallback for force_one_trade when all else fails
+        if (exit_info is None or not isinstance(exit_info, dict)) and self.force_one_trade:
+            # Use the most recent price and create a minimal trade
+            current_price = session_data['close'].iloc[-1] if not session_data.empty else 50000.0
+            entry_time = session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC')
+            
+            # Ensure we have future candles for exit simulation
+            if day_data[day_data.index > entry_time].empty:
+                # Walk backwards to find a timestamp with future candles
+                for ts in reversed(session_data.index.tolist()):
+                    if not day_data[day_data.index > ts].empty:
+                        entry_time = ts
+                        break
+            
+            # Use ORB range for stop/take profit if available, otherwise use minimal ATR
+            orb_high, orb_low = self.get_orb_levels(session_data, self.orb_window)
+            if orb_high is not None and orb_low is not None:
+                orb_range = orb_high - orb_low
+                min_atr = max(orb_range * 0.1, current_price * 0.001)  # At least 0.1% of price
+            else:
+                min_atr = current_price * 0.01  # 1% of price as fallback
+            
+            # Create minimal trade parameters
+            side = 'long'  # Default to long
+            entry_price = current_price
+            stop_loss = entry_price - (min_atr * self.atr_mult)
+            take_profit = entry_price + (min_atr * self.tp_multiplier)
+            position_size = self.risk_usdt / max(abs(entry_price - stop_loss), 1e-9)
+            
+            fb_params = {
+                'entry_price': entry_price,
+                'stop_loss': stop_loss,
+                'take_profit': take_profit,
+                'position_size': position_size,
+                'entry_time': entry_time
+            }
+            
+            exit_info = self.simulate_trade_exit(fb_params, side, day_data)
+            trade_params = fb_params
+            used_fallback = True
         
         # Create trade record
         trade = {
