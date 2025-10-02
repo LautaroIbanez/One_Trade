@@ -58,7 +58,7 @@ def clear_active_trade() -> None:
         pass
 
 
-def detect_or_update_active_trade(symbol: str, mode: str, full_day_trading: bool, config: Dict[str, Any]) -> Optional[ActiveTrade]:
+def detect_or_update_active_trade(symbol: str, mode: str, config: Dict[str, Any]) -> Optional[ActiveTrade]:
     """Query recommendation and update the active trade file accordingly.
 
     If recommendation returns a live signal with params, persist it as active.
@@ -82,7 +82,7 @@ def detect_or_update_active_trade(symbol: str, mode: str, full_day_trading: bool
                 take_profit=take_profit,
                 entry_time=str(entry_time),
                 mode=mode,
-                full_day_trading=bool(full_day_trading),
+                full_day_trading=True,  # Always True for 24h mode
             )
             save_active_trade(at)
             return at

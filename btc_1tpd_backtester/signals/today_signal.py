@@ -63,9 +63,9 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
         "atr_mult_orb": 1.2,
         "tp_multiplier": 2.0,
         "adx_min": 15.0,
-        "orb_window": (11, 12),
-        "entry_window": (11, 18),  # Extended to 18:00 UTC
-        "full_day_trading": False
+        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
+        "entry_window": (1, 24),  # Can enter throughout the day
+        "full_day_trading": True  # Always True for 24h mode
     }
     
     # Merge with provided config
@@ -166,15 +166,14 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
             since = today.isoformat()
             until = today.isoformat()
             df = fetch_historical_data(symbol, since, until, "15m")
-            if config.get("full_day_trading", False):
-                # Fetch next day to allow late breakouts and context
-                next_day = (today + timedelta(days=1)).isoformat()
-                extra = fetch_historical_data(symbol, until, next_day, "15m")
-                if extra is not None and not extra.empty:
-                    try:
-                        df = pd.concat([df, extra]).sort_index().drop_duplicates()
-                    except Exception:
-                        pass
+            # Always fetch next day for 24h trading mode
+            next_day = (today + timedelta(days=1)).isoformat()
+            extra = fetch_historical_data(symbol, until, next_day, "15m")
+            if extra is not None and not extra.empty:
+                try:
+                    df = pd.concat([df, extra]).sort_index().drop_duplicates()
+                except Exception:
+                    pass
         except Exception:
             df = None
 

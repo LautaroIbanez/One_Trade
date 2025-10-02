@@ -8,6 +8,11 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for Python < 3.9
+    from backports.zoneinfo import ZoneInfo
 
 # Paths (ensure imports work when running from webapp/)
 base_dir = Path(__file__).resolve().parent
@@ -43,8 +48,8 @@ BASE_CONFIG = {
     "slippage_rate": 0.0005,   # 0.05% default
     "initial_capital": 1000.0, # Initial capital in USDT
     "leverage": 1.0,           # Leverage multiplier
-    "full_day_trading": False,  # Full day trading mode
-    "force_one_trade": False,
+    "full_day_trading": True,  # Always use 24h trading mode
+    "force_one_trade": True,   # Always force one trade
     "fallback_mode": "EMA15_pullback",
     # When rebuilding, start date or lookback control
     "backtest_start_date": None,  # ISO date string e.g., "2024-01-01"
@@ -52,80 +57,78 @@ BASE_CONFIG = {
 }
 MODE_CONFIG = {
     "conservative": {
-        "risk_usdt": 10.0, 
+        "risk_usdt": 15.0,  # Integrated from full_day_overrides
         "atr_mult_orb": 1.5, 
         "tp_multiplier": 1.5, 
-        "orb_window": (11, 12), 
-        "entry_window": (11, 18),  # Extended to 18:00 UTC
-        "commission_rate": 0.0008,  # Lower commission for conservative
-        "slippage_rate": 0.0003,
+        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
+        "entry_window": (1, 24),  # Can enter throughout the day
+        "commission_rate": 0.001,  # Integrated from full_day_overrides
+        "slippage_rate": 0.0005,  # Integrated from full_day_overrides
         "initial_capital": 1000.0,
         "leverage": 1.0,
-        "full_day_overrides": {
-            "risk_usdt": 15.0,  # Slightly higher risk for 24h
-            "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
-            "commission_rate": 0.001,  # Higher commission for 24h trading
-            "slippage_rate": 0.0005
-        }
+        "force_one_trade": True,
+        "full_day_trading": True
     },
     "moderate": {
-        "risk_usdt": 20.0, 
+        "risk_usdt": 25.0,  # Integrated from full_day_overrides
         "atr_mult_orb": 1.2, 
         "tp_multiplier": 2.0, 
-        "orb_window": (11, 12), 
-        "entry_window": (11, 18),  # Extended to 18:00 UTC
-        "commission_rate": 0.001,   # Standard commission
-        "slippage_rate": 0.0005,
+        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
+        "entry_window": (1, 24),  # Can enter throughout the day
+        "commission_rate": 0.0012,  # Integrated from full_day_overrides
+        "slippage_rate": 0.0008,  # Integrated from full_day_overrides
         "initial_capital": 1000.0,
         "leverage": 1.0,
-        "full_day_overrides": {
-            "risk_usdt": 25.0,  # Higher risk for 24h
-            "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
-            "commission_rate": 0.0012,  # Higher commission for 24h trading
-            "slippage_rate": 0.0008
-        },
         "force_one_trade": True,
-        "fallback_mode": "EMA15_pullback"
+        "fallback_mode": "EMA15_pullback",
+        "full_day_trading": True
     },
     "aggressive": {
-        "risk_usdt": 30.0, 
+        "risk_usdt": 40.0,  # Integrated from full_day_overrides
         "atr_mult_orb": 1.0, 
         "tp_multiplier": 2.5, 
-        "orb_window": (10, 12), 
-        "entry_window": (10, 18),  # Extended to 18:00 UTC
-        "commission_rate": 0.0012,  # Higher commission for aggressive
-        "slippage_rate": 0.0008,
+        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
+        "entry_window": (1, 24),  # Can enter throughout the day
+        "commission_rate": 0.0015,  # Integrated from full_day_overrides
+        "slippage_rate": 0.001,  # Integrated from full_day_overrides
         "initial_capital": 1000.0,
         "leverage": 1.0,
-        "full_day_overrides": {
-            "risk_usdt": 40.0,  # Even higher risk for 24h
-            "orb_window": (0, 1),  # ORB at midnight UTC
-            "entry_window": (1, 24),  # Can enter throughout the day (0-24 range)
-            "commission_rate": 0.0015,  # Highest commission for 24h trading
-            "slippage_rate": 0.001
-        }
+        "force_one_trade": True,
+        "full_day_trading": True
     },
 }
 
 
-def get_effective_config(symbol: str, mode: str, full_day_trading: bool = False) -> dict:
-    """Return merged BASE_CONFIG with selected mode overrides and optionally full_day_overrides. Symbol kept for future symbol-specific tweaks."""
+def get_effective_config(symbol: str, mode: str) -> dict:
+    """Return merged BASE_CONFIG with selected mode overrides. Always uses 24h trading mode."""
     mode_cfg = MODE_CONFIG.get((mode or "moderate").lower(), {})
     
     # Start with base config, then apply mode config
-    config = {**BASE_CONFIG, **{k: v for k, v in mode_cfg.items() if k != "full_day_overrides"}}
-    
-    # If full_day_trading is True, apply the full_day_overrides
-    if full_day_trading and "full_day_overrides" in mode_cfg:
-        full_day_overrides = mode_cfg["full_day_overrides"]
-        config = {**config, **full_day_overrides}
-    
-    # Set the full_day_trading flag based on the parameter
-    config["full_day_trading"] = full_day_trading
+    config = {**BASE_CONFIG, **mode_cfg}
     
     return config
+
+
+# Timezone helper
+ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+
+def to_argentina_time(dt):
+    """Convert a datetime to Argentina timezone."""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        dt = pd.to_datetime(dt)
+    if dt.tzinfo is None:
+        # Assume UTC if no timezone info
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ARGENTINA_TZ)
+
+def format_argentina_time(dt, format_str="%Y-%m-%d %H:%M:%S %Z"):
+    """Format a datetime to Argentina timezone string."""
+    arg_dt = to_argentina_time(dt)
+    if arg_dt is None:
+        return ""
+    return arg_dt.strftime(format_str)
 
 # Symbols supported (reused from dashboards)
 DEFAULT_SYMBOLS = [
@@ -138,43 +141,32 @@ DEFAULT_SYMBOLS = [
 ]
 
 
-def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> str:
+def refresh_trades(symbol: str, mode: str) -> str:
     """
     Refresh trades data by running backtest from last available date to today for a given symbol and mode.
+    Always uses 24-hour trading mode.
     
     Args:
         symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
         mode: Trading mode ('conservative', 'moderate', 'aggressive')
-        full_day_trading: If True, enables 24-hour trading mode with separate file storage
     
     Returns:
         Status message indicating success or failure
-        
-    Note:
-        When full_day_trading mode changes, the system will rebuild the entire backtest
-        to avoid mixing different trading session types. Files are stored with _24h suffix
-        for full day trading mode to maintain separation.
     """
     if run_backtest is None:
         return "Backtest module not available"
     
-    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, 24h={full_day_trading}")
+    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, 24h=True")
     try:
         # Load existing trades for the current mode
-        existing_trades = load_trades(symbol, mode, full_day_trading)
+        existing_trades = load_trades(symbol, mode)
         
         # Check for mode change by comparing file existence and current mode
-        # Mode change occurs when switching between normal and 24h files
         slug = symbol.replace('/', '_').replace(':', '_')
         mode_suffix = (mode or "moderate").lower()
         data_dir = repo_root / "data"
         
-        normal_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
-        file_24h = data_dir / f"trades_final_{slug}_{mode_suffix}_24h.csv"
-        
-        # Determine which file should exist for the current mode
-        expected_file = file_24h if full_day_trading else normal_file
-        opposite_file = normal_file if full_day_trading else file_24h
+        expected_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
 
         # Sidecar meta path and stored full_day flag
         stored_full_day_flag = None
@@ -188,22 +180,20 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
             print(f"⚠️ Could not read sidecar for mode detection: {e}")
             stored_full_day_flag = None
 
-        # Mode change detected if expected CSV missing OR stored flag differs from requested
+        # Mode change detected if expected CSV missing OR stored flag differs from 24h mode
         mode_change_detected = (
             not expected_file.exists() or
-            (stored_full_day_flag is not None and stored_full_day_flag != bool(full_day_trading)) or
-            (normal_file.exists() and file_24h.exists() and existing_trades.empty)
+            (stored_full_day_flag is not None and stored_full_day_flag != True)
         )
         
         # Determine default since using config lookback/backtest_start_date
-        cfg_for_since = get_effective_config(symbol, mode, full_day_trading)
-        cfg_for_since["full_day_trading"] = bool(full_day_trading)
+        cfg_for_since = get_effective_config(symbol, mode)
         start_override = cfg_for_since.get("backtest_start_date")
         lb_days = cfg_for_since.get("lookback_days", 30)
         default_since = (start_override or (datetime.now(timezone.utc).date() - timedelta(days=int(lb_days))).isoformat())
         
         if mode_change_detected:
-            print(f"🔄 Mode change detected: switching to {'24h' if full_day_trading else 'normal'} mode")
+            print(f"🔄 Mode change detected: switching to 24h mode")
             # Clear existing trades and force rebuild
             existing_trades = pd.DataFrame()
             since = default_since
@@ -230,11 +220,9 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
         except Exception as e:
             print(f"⚠️ since/until parsing failed (continuing): {e}")
         
-        # Merge base and mode config with full_day_trading parameter
-        config = get_effective_config(symbol, mode, full_day_trading)
-        # Set full_day_trading flag
-        config["full_day_trading"] = bool(full_day_trading)
-        print(f"📊 Effective config for {symbol} {mode} (24h: {full_day_trading}): {config}")
+        # Merge base and mode config
+        config = get_effective_config(symbol, mode)
+        print(f"📊 Effective config for {symbol} {mode} (24h: True): {config}")
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
@@ -249,44 +237,21 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
         # Determine filename with absolute path
         slug = symbol.replace('/', '_').replace(':', '_')
         mode_suffix = (mode or "moderate").lower()
-        trading_suffix = "_24h" if full_day_trading else ""
         data_dir = repo_root / "data"
         data_dir.mkdir(parents=True, exist_ok=True)
-        filename = data_dir / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv"
+        filename = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
         
         # Use mode change detection from earlier
         rebuild_completely = mode_change_detected or existing_trades.empty
         
-        # In 24h mode or if current expected CSV has too few distinct days, force rebuild
-        min_days_required = 3
-        if full_day_trading:
-            rebuild_completely = True
-            print("ℹ️  24h mode: forcing complete rebuild using default since range.")
-        else:
-            # Check coverage if file exists
-            try:
-                if filename.exists():
-                    temp_df = pd.read_csv(filename)
-                    if "entry_time" in temp_df.columns and not temp_df.empty:
-                        distinct_days = pd.to_datetime(temp_df["entry_time"]).dt.date.nunique()
-                        if distinct_days < min_days_required:
-                            rebuild_completely = True
-                            print(f"ℹ️  Coverage below threshold ({distinct_days}<{min_days_required}): forcing rebuild.")
-            except Exception:
-                pass
+        # Always force rebuild for 24h mode
+        rebuild_completely = True
+        print("ℹ️  24h mode: forcing complete rebuild using default since range.")
 
         if rebuild_completely:
-            print(f"🔄 Rebuilding completely for {symbol} {mode} (24h: {full_day_trading})")
+            print(f"🔄 Rebuilding completely for {symbol} {mode} (24h: True)")
             # Replace CSV completely with new results, no concatenation
             combined = results.copy() if results is not None and not results.empty else pd.DataFrame()
-        else:
-            # Incremental update: merge existing and new results
-            print(f"📈 Incremental update for {symbol} {mode} (24h: {full_day_trading})")
-            combined = pd.DataFrame()
-            if existing_trades is not None and not existing_trades.empty:
-                combined = existing_trades.copy()
-            if results is not None and not results.empty:
-                combined = pd.concat([combined, results], ignore_index=True) if not combined.empty else results.copy()
 
         # If there is an active trade and we have a detected exit, append it if not present
         if active is not None:
@@ -365,7 +330,7 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
                 "last_trade_date": last_trade_date,  # Last actual trade date
                 "symbol": symbol,
                 "mode": mode,
-                "full_day_trading": bool(full_day_trading),
+                "full_day_trading": True,  # Always True for 24h mode
                 "backtest_start_date": (start_override or default_since),
             }
             sidecar_out.write_text(_json.dumps(meta_payload, indent=2, ensure_ascii=False))
@@ -378,14 +343,13 @@ def refresh_trades(symbol: str, mode: str, full_day_trading: bool = False) -> st
         return f"ERROR: refresh_trades failed for {symbol} {mode}: {str(e)}"
 
 
-def load_trades(symbol: str | None = None, mode: str | None = None, full_day_trading: bool = False, csv_path: str = "trades_final.csv") -> pd.DataFrame:
+def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: str = "trades_final.csv") -> pd.DataFrame:
     """
-    Load trades data from CSV files with support for different trading modes.
+    Load trades data from CSV files. Always uses 24-hour trading mode.
     
     Args:
         symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
         mode: Trading mode ('conservative', 'moderate', 'aggressive')
-        full_day_trading: If True, loads 24-hour trading data (files with _24h suffix)
         csv_path: Fallback CSV path if specific files not found
     
     Returns:
@@ -393,29 +357,25 @@ def load_trades(symbol: str | None = None, mode: str | None = None, full_day_tra
         
     Note:
         Files are searched in order of preference:
-        1. trades_final_{symbol}_{mode}_{24h}.csv (if full_day_trading=True)
-        2. trades_final_{symbol}_{mode}.csv (if full_day_trading=False)
-        3. Generic fallbacks
+        1. trades_final_{symbol}_{mode}.csv
+        2. Generic fallbacks
     """
     slug = None
     if symbol:
         slug = symbol.replace('/', '_').replace(':', '_')
     mode_suffix = (mode or "").lower().strip()
     
-    # Create suffix for full_day_trading mode
-    trading_suffix = "_24h" if full_day_trading else ""
-    
-    print(f"📂 load_trades called: symbol={symbol}, mode={mode}, 24h={full_day_trading}")
+    print(f"📂 load_trades called: symbol={symbol}, mode={mode}, 24h=True")
     
     # Build absolute paths based on repo_root, restricted to data/ and explicit csv_path
     candidates = []
     data_dir = repo_root / "data"
     if slug:
         if mode_suffix:
-            candidates.append(data_dir / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv")
-        candidates.append(data_dir / f"trades_final_{slug}{trading_suffix}.csv")
+            candidates.append(data_dir / f"trades_final_{slug}_{mode_suffix}.csv")
+        candidates.append(data_dir / f"trades_final_{slug}.csv")
     if mode_suffix:
-        candidates.append(data_dir / f"trades_final_{mode_suffix}{trading_suffix}.csv")
+        candidates.append(data_dir / f"trades_final_{mode_suffix}.csv")
     candidates.append(repo_root / "data" / "trades_final.csv")
     # Explicit parameter path last
     candidates.append(repo_root / csv_path)
@@ -528,6 +488,8 @@ def figure_equity_curve(trades: pd.DataFrame):
     if "entry_time" in df.columns:
         df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
         df = df.sort_values(by="entry_time", ascending=True)
+        # Convert to Argentina timezone for display
+        df["entry_time"] = df["entry_time"].apply(lambda x: to_argentina_time(x))
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     fig = px.line(df, x="entry_time", y="cumulative_pnl", title="Equity Curve")
     fig.update_layout(margin=dict(l=10, r=10, t=40, b=10))
@@ -549,6 +511,8 @@ def figure_drawdown(trades: pd.DataFrame):
     if "entry_time" in df.columns:
         df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
         df = df.sort_values(by="entry_time", ascending=True)
+        # Convert to Argentina timezone for display
+        df["entry_time"] = df["entry_time"].apply(lambda x: to_argentina_time(x))
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     df["running_max"] = df["cumulative_pnl"].cummax()
     df["drawdown"] = df["cumulative_pnl"] - df["running_max"]
@@ -561,6 +525,9 @@ def figure_trade_timeline(trades: pd.DataFrame):
     if trades.empty:
         return go.Figure()
     df = trades.copy()
+    # Convert entry_time to Argentina timezone for display
+    if "entry_time" in df.columns:
+        df["entry_time"] = df["entry_time"].apply(lambda x: to_argentina_time(x))
     wins = df[df["pnl_usdt"] > 0]
     losses = df[df["pnl_usdt"] < 0]
     fig = go.Figure()
@@ -577,6 +544,8 @@ def figure_monthly_performance(trades: pd.DataFrame):
         return go.Figure()
     df = trades.copy()
     df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure datetime
+    # Convert to Argentina timezone for monthly grouping
+    df["entry_time"] = df["entry_time"].apply(lambda x: to_argentina_time(x))
     df["month"] = df["entry_time"].dt.to_period("M").astype(str)
     monthly = df.groupby("month")["pnl_usdt"].sum().reset_index()
     monthly["color"] = monthly["pnl_usdt"].apply(lambda x: "green" if x > 0 else "red")
@@ -626,16 +595,24 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
             shorts = df.iloc[0:0]
 
         if not longs.empty:
-            fig.add_trace(go.Scatter(x=longs["entry_time"], y=longs["entry_price"], mode="markers", name="Entry Long", marker=dict(color="green", symbol="triangle-up", size=9)))
+            # Convert entry times to Argentina timezone
+            longs_entry_times = longs["entry_time"].apply(lambda x: to_argentina_time(x))
+            fig.add_trace(go.Scatter(x=longs_entry_times, y=longs["entry_price"], mode="markers", name="Entry Long", marker=dict(color="green", symbol="triangle-up", size=9)))
         if not shorts.empty:
-            fig.add_trace(go.Scatter(x=shorts["entry_time"], y=shorts["entry_price"], mode="markers", name="Entry Short", marker=dict(color="red", symbol="triangle-down", size=9)))
+            # Convert entry times to Argentina timezone
+            shorts_entry_times = shorts["entry_time"].apply(lambda x: to_argentina_time(x))
+            fig.add_trace(go.Scatter(x=shorts_entry_times, y=shorts["entry_price"], mode="markers", name="Entry Short", marker=dict(color="red", symbol="triangle-down", size=9)))
 
         # exits separated by side
         if "exit_time" in df.columns and "exit_price" in df.columns:
             if not longs.empty:
-                fig.add_trace(go.Scatter(x=pd.to_datetime(longs["exit_time"]), y=longs["exit_price"], mode="markers", name="Exit Long", marker=dict(color="green", symbol="x", size=9)))
+                # Convert exit times to Argentina timezone
+                longs_exit_times = longs["exit_time"].apply(lambda x: to_argentina_time(x))
+                fig.add_trace(go.Scatter(x=longs_exit_times, y=longs["exit_price"], mode="markers", name="Exit Long", marker=dict(color="green", symbol="x", size=9)))
             if not shorts.empty:
-                fig.add_trace(go.Scatter(x=pd.to_datetime(shorts["exit_time"]), y=shorts["exit_price"], mode="markers", name="Exit Short", marker=dict(color="red", symbol="x", size=9)))
+                # Convert exit times to Argentina timezone
+                shorts_exit_times = shorts["exit_time"].apply(lambda x: to_argentina_time(x))
+                fig.add_trace(go.Scatter(x=shorts_exit_times, y=shorts["exit_price"], mode="markers", name="Exit Short", marker=dict(color="red", symbol="x", size=9)))
         fig.update_layout(margin=dict(l=10, r=10, t=40, b=10), xaxis_title="Time", yaxis_title="Price")
         return fig
     except Exception:
@@ -653,7 +630,6 @@ def create_app():
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
-                dbc.Col(dbc.Switch(id="full-day-trading", label="Trading 24h", value=False, className="me-3", labelClassName="text-white"), md="auto"),
                 dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
@@ -748,10 +724,9 @@ def create_app():
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
-        Input("full-day-trading", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(symbol, n_clicks, mode, full_day_trading):
+    def update_dashboard(symbol, n_clicks, mode):
         symbol = (symbol or "BTC/USDT:USDT").strip()
         
         # Fetch latest price
@@ -765,12 +740,12 @@ def create_app():
         # Refresh trades data first
         refresh_msg = ""
         try:
-            refresh_msg = refresh_trades(symbol, mode or "moderate", full_day_trading or False)
+            refresh_msg = refresh_trades(symbol, mode or "moderate")
         except Exception as e:
             refresh_msg = f"Error refreshing trades: {str(e)}"
         
         # Load updated trades
-        trades = load_trades(symbol, mode or "moderate", full_day_trading or False)
+        trades = load_trades(symbol, mode or "moderate")
         # Load active trade if any to reflect in UI
         active_trade = None
         try:
@@ -783,8 +758,7 @@ def create_app():
         try:
             slug = symbol.replace('/', '_').replace(':', '_')
             mode_suffix = (mode or "moderate").lower()
-            trading_suffix = "_24h" if (full_day_trading or False) else ""
-            meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}{trading_suffix}").with_suffix("")
+            meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}").with_suffix("")
             meta_path = Path(str(meta_path) + "_meta.json")
             last_until = None
             if meta_path.exists():
@@ -798,7 +772,7 @@ def create_app():
             # If last_backtest_until is today, clarify there were no trades
             today_iso = datetime.now(timezone.utc).date().isoformat()
             if last_until == today_iso:
-                alert_msg = f"Actualizado al {today_iso}. No hubo operaciones en la sesión."
+                alert_msg = f"Actualizado al {format_argentina_time(datetime.now(timezone.utc), '%Y-%m-%d')}. No hubo operaciones en la sesión."
             else:
                 alert_msg = f"No hay datos para {symbol} en modo {mode_display}. {refresh_msg}"
         elif refresh_msg and "Error" in refresh_msg:
@@ -806,10 +780,8 @@ def create_app():
         elif active_trade is not None:
             alert_msg = f"Operación activa: {active_trade.side.upper()} a {active_trade.entry_price} (SL {active_trade.stop_loss}, TP {active_trade.take_profit})."
 
-        # Get effective configuration with full_day_trading parameter
-        config = get_effective_config(symbol, mode or "moderate", full_day_trading or False)
-        # Add full_day_trading to config
-        config['full_day_trading'] = full_day_trading or False
+        # Get effective configuration
+        config = get_effective_config(symbol, mode or "moderate")
         m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
@@ -895,9 +867,8 @@ def create_app():
         reco_children = html.Div("Se requiere módulo de señales.")
         try:
             from btc_1tpd_backtester.live_monitor import detect_or_update_active_trade
-            merged_cfg = get_effective_config(symbol, mode, full_day_trading or False)
-            merged_cfg['full_day_trading'] = full_day_trading or False
-            active_or_rec = detect_or_update_active_trade(symbol, mode, full_day_trading or False, merged_cfg)
+            merged_cfg = get_effective_config(symbol, mode)
+            active_or_rec = detect_or_update_active_trade(symbol, mode, merged_cfg)
             # Build card from active_or_rec when we have params
             if active_or_rec is not None:
                 side = getattr(active_or_rec, 'side', None) or (active_or_rec.get('side') if isinstance(active_or_rec, dict) else None)
@@ -909,7 +880,7 @@ def create_app():
                 reco_children = html.Div([
                     html.Div([html.B("Símbolo: "), html.Span(symbol)]),
                     html.Div([html.B("Dirección: "), dbc.Badge((side or "-").lower(), color=badge_color, className="ms-1")]),
-                    html.Div([html.B("Hora entrada: "), str(entry_time_val or "-")]),
+                    html.Div([html.B("Hora entrada: "), format_argentina_time(entry_time_val, "%H:%M:%S %Z") if entry_time_val else "-"]),
                     html.Div([html.B("Entrada: "), f"{entry_price if entry_price is not None else '-'}"]),
                     html.Div([html.B("SL: "), f"{stop_loss if stop_loss is not None else '-'}"]),
                     html.Div([html.B("TP: "), f"{take_profit if take_profit is not None else '-'}"]),
@@ -922,7 +893,7 @@ def create_app():
             price_display = html.Div([
                 html.Div([
                     html.H4(f"${price_info['price']:,.2f}", className="text-primary mb-1"),
-                    html.Small(f"{symbol} • {price_info['timestamp'].strftime('%H:%M:%S UTC')}", className="text-muted")
+                    html.Small(f"{symbol} • {format_argentina_time(price_info['timestamp'], '%H:%M:%S %Z')}", className="text-muted")
                 ], className="d-flex justify-content-between align-items-center"),
                 html.Hr(className="my-2"),
                 html.Div([
@@ -937,7 +908,7 @@ def create_app():
             missing_msg = "fetch_latest_price no disponible" if fetch_latest_price is None else "No se pudo obtener el precio actual"
             price_display = html.Div([
                 html.P(missing_msg, className="text-muted mb-0"),
-                html.Small(f"{symbol} • {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')}", className="text-muted")
+                html.Small(f"{symbol} • {format_argentina_time(datetime.now(timezone.utc), '%H:%M:%S %Z')}", className="text-muted")
             ])
 
         # If no data, still return empty figures but show alert clearly
@@ -947,10 +918,11 @@ def create_app():
             # Ordering recent first
             if "entry_time" in tbl.columns:
                 tbl = tbl.sort_values(by="entry_time", ascending=False)
-            # Convert datetimes to ISO for DataTable
+            # Convert datetimes to Argentina timezone for DataTable
             for col in ["entry_time", "exit_time"]:
                 if col in tbl.columns:
-                    tbl[col] = pd.to_datetime(tbl[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
+                    # Convert to Argentina timezone and format
+                    tbl[col] = pd.to_datetime(tbl[col]).apply(lambda x: format_argentina_time(x, "%Y-%m-%d %H:%M:%S"))
             # Columns to show (only those that exist)
             desired_cols = [
                 "entry_time", "side", "entry_price", "exit_price", "pnl_usdt", "r_multiple", "exit_time", "exit_reason"
@@ -961,7 +933,7 @@ def create_app():
         if active_trade is not None:
             try:
                 active_row = {
-                    "entry_time": pd.to_datetime(active_trade.entry_time).strftime("%Y-%m-%d %H:%M:%S"),
+                    "entry_time": format_argentina_time(active_trade.entry_time, "%Y-%m-%d %H:%M:%S"),
                     "side": active_trade.side,
                     "entry_price": active_trade.entry_price,
                     "exit_price": None,
