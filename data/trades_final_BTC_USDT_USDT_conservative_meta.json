@@ -1,0 +1,6 @@
+{
+  "last_backtest_until": "2025-09-29",
+  "symbol": "BTC/USDT:USDT",
+  "mode": "conservative",
+  "full_day_trading": false
+}
