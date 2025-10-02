@@ -244,6 +244,11 @@ def refresh_trades(symbol: str, mode: str) -> str:
         # Use mode change detection from earlier
         rebuild_completely = mode_change_detected or existing_trades.empty
         
+        # Define standard columns early to avoid FutureWarning
+        standard_cols = [
+            "day_key","entry_time","side","entry_price","sl","tp","exit_time","exit_price","exit_reason","pnl_usdt","r_multiple","used_fallback","mode"
+        ]
+        
         # Always force rebuild for 24h mode
         rebuild_completely = True
         print("ℹ️  24h mode: forcing complete rebuild using default since range.")
@@ -276,18 +281,25 @@ def refresh_trades(symbol: str, mode: str) -> str:
                     "used_fallback": None,
                     "mode": mode,
                 }
-                combined = pd.concat([combined, pd.DataFrame([new_row])], ignore_index=True) if combined is not None else pd.DataFrame([new_row])
+                # Create new row with standard columns to avoid FutureWarning
+                new_row_df = pd.DataFrame([new_row], columns=standard_cols)
+                if combined.empty:
+                    combined = new_row_df
+                else:
+                    combined = pd.concat([combined, new_row_df], ignore_index=True)
                 try:
                     clear_active_trade()
                 except Exception:
                     pass
         
-        # Always write CSV even if empty, with standard columns
-        standard_cols = [
-            "day_key","entry_time","side","entry_price","sl","tp","exit_time","exit_price","exit_reason","pnl_usdt","r_multiple","used_fallback","mode"
-        ]
+        # Initialize combined with standard columns to avoid FutureWarning
         if combined is None or combined.empty:
             combined = pd.DataFrame(columns=standard_cols)
+        else:
+            # Ensure combined has all standard columns
+            for col in standard_cols:
+                if col not in combined.columns:
+                    combined[col] = None
         
         # Normalize datetime and sort
         if "entry_time" in combined.columns:
@@ -387,6 +399,28 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
             df = pd.read_csv(path)
             if df.empty:
                 continue
+            
+            # Tolerant date parsing for entry_time and exit_time columns
+            if "entry_time" in df.columns:
+                try:
+                    # Use ISO8601 format with error coercion for tolerant parsing
+                    df["entry_time"] = pd.to_datetime(df["entry_time"], format='ISO8601', errors='coerce', utc=True)
+                    # Remove rows with invalid dates (NaT)
+                    invalid_dates = df["entry_time"].isna().sum()
+                    if invalid_dates > 0:
+                        print(f"⚠️ Removed {invalid_dates} rows with invalid entry_time in {path}")
+                        df = df.dropna(subset=["entry_time"])
+                except Exception as e:
+                    print(f"⚠️ Error parsing entry_time in {path}: {e}")
+            
+            if "exit_time" in df.columns:
+                try:
+                    # Use ISO8601 format with error coercion for tolerant parsing
+                    df["exit_time"] = pd.to_datetime(df["exit_time"], format='ISO8601', errors='coerce', utc=True)
+                    # Don't remove rows with invalid exit_time (might be active trades)
+                except Exception as e:
+                    print(f"⚠️ Error parsing exit_time in {path}: {e}")
+            
             # Freshness validation via sidecar
             try:
                 meta_base = path.with_suffix("")
@@ -403,7 +437,7 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                 if last_until is not None and last_until >= today_date:
                     # File is fresh, but check if we have actual trades
                     if "entry_time" in df.columns and not df["entry_time"].isna().all():
-                        max_entry = pd.to_datetime(df["entry_time"]).max()
+                        max_entry = df["entry_time"].max()
                         if pd.notna(max_entry):
                             max_entry_date = max_entry.date().isoformat()
                             # Accept if max_entry_date <= today (not future) and sidecar covers today
@@ -420,11 +454,7 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                 print(f"⚠️ Freshness validation failed for {path}: {e}")
                 continue
             print(f"✅ Loaded trades from: {path} ({len(df)} rows)")
-            # Normalize times
-            if "entry_time" in df.columns:
-                df["entry_time"] = pd.to_datetime(df["entry_time"])
-            if "exit_time" in df.columns:
-                df["exit_time"] = pd.to_datetime(df["exit_time"]) 
+            # Times are already normalized above with tolerant parsing 
             # Filter by symbol if column exists and symbol provided
             if symbol and "symbol" in df.columns:
                 df = df[df["symbol"] == symbol]
@@ -546,6 +576,8 @@ def figure_monthly_performance(trades: pd.DataFrame):
     df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure datetime
     # Convert to Argentina timezone for monthly grouping
     df["entry_time"] = df["entry_time"].apply(lambda x: to_argentina_time(x))
+    # Convert to naive datetime to avoid timezone issues with to_period
+    df["entry_time"] = df["entry_time"].dt.tz_localize(None)
     df["month"] = df["entry_time"].dt.to_period("M").astype(str)
     monthly = df.groupby("month")["pnl_usdt"].sum().reset_index()
     monthly["color"] = monthly["pnl_usdt"].apply(lambda x: "green" if x > 0 else "red")

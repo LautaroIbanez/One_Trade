@@ -9,33 +9,134 @@ import numpy as np
 from datetime import datetime, timezone, timedelta
 import pytz
 import time
+import logging
+from typing import Optional, Dict, Any
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_name='binance'):
+def detect_symbol_type(symbol: str) -> tuple[str, str]:
     """
-    Fetch historical data from Binance.
+    Detect symbol type and return appropriate exchange name and market type.
+    
+    Args:
+        symbol: Trading symbol (e.g., 'BTC/USDT:USDT', 'BTC/USDT', 'BTCUSD_PERP')
+    
+    Returns:
+        tuple: (exchange_name, market_type)
+    """
+    symbol_upper = symbol.upper()
+    
+    # Futures symbols
+    if ':USDT' in symbol_upper:
+        return 'binanceusdm', 'future'
+    elif ':USD' in symbol_upper:
+        return 'binancecoinm', 'future'
+    elif '_PERP' in symbol_upper:
+        return 'binanceusdm', 'future'
+    else:
+        # Spot symbols
+        return 'binance', 'spot'
+
+
+def create_exchange_client(exchange_name: str, market_type: str = 'future') -> ccxt.Exchange:
+    """
+    Create and configure exchange client with proper settings.
+    
+    Args:
+        exchange_name: Exchange name (e.g., 'binance', 'binanceusdm')
+        market_type: Market type ('spot', 'future')
+    
+    Returns:
+        ccxt.Exchange: Configured exchange client
+    """
+    config = {
+        'apiKey': '',  # No API key needed for public data
+        'secret': '',
+        'sandbox': False,
+        'enableRateLimit': True,
+    }
+    
+    if market_type == 'future':
+        config['options'] = {'defaultType': 'future'}
+    
+    exchange = getattr(ccxt, exchange_name)(config)
+    
+    # Load markets to ensure proper symbol mapping
+    try:
+        exchange.load_markets()
+        logger.info(f"Loaded markets for {exchange_name} ({market_type})")
+    except Exception as e:
+        logger.warning(f"Could not load markets for {exchange_name}: {e}")
+    
+    return exchange
+
+
+def fetch_with_retry(exchange: ccxt.Exchange, method: str, symbol: str, *args, max_retries: int = 3, **kwargs) -> Optional[Any]:
+    """
+    Fetch data with retry logic and exponential backoff.
+    
+    Args:
+        exchange: Exchange client
+        method: Method name to call ('fetch_ohlcv', 'fetch_ticker', etc.)
+        symbol: Trading symbol
+        *args: Positional arguments for the method
+        max_retries: Maximum number of retry attempts
+        **kwargs: Keyword arguments for the method
+    
+    Returns:
+        Fetched data or None if all retries failed
+    """
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{max_retries} - {method} for {symbol}")
+            result = getattr(exchange, method)(symbol, *args, **kwargs)
+            logger.info(f"Successfully fetched {method} for {symbol}")
+            return result
+            
+        except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+            logger.warning(f"Attempt {attempt + 1} failed for {symbol}: {e}")
+            if attempt < max_retries - 1:
+                # Exponential backoff: 1s, 2s, 4s
+                wait_time = 2 ** attempt
+                logger.info(f"Retrying in {wait_time} seconds...")
+                time.sleep(wait_time)
+            else:
+                logger.error(f"All {max_retries} attempts failed for {symbol}")
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in {method} for {symbol}: {e}")
+            break
+    
+    return None
+
+
+def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_name=None):
+    """
+    Fetch historical data from Binance with automatic symbol type detection.
     
     Args:
         symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
         since: Start date in ISO format or datetime
         until: End date in ISO format or datetime (optional)
         timeframe: Data timeframe ('1h', '15m', '5m', etc.)
-        exchange_name: Exchange name (default: 'binance')
+        exchange_name: Exchange name (optional, auto-detected if None)
     
     Returns:
         pandas.DataFrame: OHLCV data with UTC timezone
     """
     try:
-        # Initialize exchange
-        exchange = getattr(ccxt, exchange_name)({
-            'apiKey': '',  # No API key needed for public data
-            'secret': '',
-            'sandbox': False,
-            'enableRateLimit': True,
-            'options': {
-                'defaultType': 'future',  # Use futures market
-            }
-        })
+        # Auto-detect exchange and market type if not provided
+        if exchange_name is None:
+            exchange_name, market_type = detect_symbol_type(symbol)
+            logger.info(f"Auto-detected {exchange_name} ({market_type}) for {symbol}")
+        else:
+            market_type = 'future'  # Default to future for backward compatibility
+        
+        # Initialize exchange with proper configuration
+        exchange = create_exchange_client(exchange_name, market_type)
         
         # Parse dates
         if isinstance(since, str):
@@ -81,27 +182,23 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
         chunk_size = 1000  # Number of candles per request
         
         while current_since < until_ms:
-            try:
-                # Calculate chunk end time
-                chunk_until = min(current_since + (chunk_size * _get_timeframe_ms(timeframe)), until_ms)
-                
-                # Fetch chunk
-                ohlcv = exchange.fetch_ohlcv(symbol, timeframe, current_since, chunk_size)
-                
-                if not ohlcv:
-                    break
-                
-                all_data.extend(ohlcv)
-                
-                # Update current_since to last timestamp + 1
-                current_since = ohlcv[-1][0] + 1
-                
-                # Rate limiting
-                time.sleep(0.1)
-                
-            except Exception as e:
-                print(f"Error fetching chunk: {e}")
+            # Calculate chunk end time
+            chunk_until = min(current_since + (chunk_size * _get_timeframe_ms(timeframe)), until_ms)
+            
+            # Fetch chunk with retry logic
+            ohlcv = fetch_with_retry(exchange, 'fetch_ohlcv', symbol, timeframe, current_since, chunk_size)
+            
+            if not ohlcv:
+                logger.warning(f"No data returned for chunk starting at {current_since}")
                 break
+            
+            all_data.extend(ohlcv)
+            
+            # Update current_since to last timestamp + 1
+            current_since = ohlcv[-1][0] + 1
+            
+            # Rate limiting
+            time.sleep(0.1)
         
         if not all_data:
             print(f"No data retrieved for {symbol}")
@@ -340,21 +437,31 @@ def get_next_trading_day(dt):
     return next_day
 
 
-def fetch_latest_price(symbol, exchange_name='binance'):
+def fetch_latest_price(symbol, exchange_name=None):
     """
-    Fetch the latest price via ccxt and normalize fields.
+    Fetch the latest price via ccxt with automatic symbol type detection and retry logic.
     Returns dict with keys: price, bid, ask, volume, timestamp, symbol, exchange.
     Returns None on failure.
     """
     try:
-        exchange = getattr(ccxt, exchange_name)({
-            'apiKey': '',
-            'secret': '',
-            'sandbox': False,
-            'enableRateLimit': True,
-            'options': {'defaultType': 'future'}
-        })
-        ticker = exchange.fetch_ticker(symbol)
+        # Auto-detect exchange and market type if not provided
+        if exchange_name is None:
+            exchange_name, market_type = detect_symbol_type(symbol)
+            logger.info(f"Auto-detected {exchange_name} ({market_type}) for {symbol} price fetch")
+        else:
+            market_type = 'future'  # Default to future for backward compatibility
+        
+        # Initialize exchange with proper configuration
+        exchange = create_exchange_client(exchange_name, market_type)
+        
+        # Fetch ticker with retry logic
+        ticker = fetch_with_retry(exchange, 'fetch_ticker', symbol)
+        
+        if not ticker:
+            logger.error(f"Failed to fetch ticker for {symbol} after all retries")
+            return None
+        
+        # Parse timestamp
         ts = ticker.get('timestamp') or ticker.get('datetime')
         if isinstance(ts, (int, float)):
             ts_dt = datetime.fromtimestamp(ts/1000.0, tz=timezone.utc)
@@ -363,7 +470,8 @@ def fetch_latest_price(symbol, exchange_name='binance'):
                 ts_dt = datetime.now(timezone.utc) if ts is None else datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
             except Exception:
                 ts_dt = datetime.now(timezone.utc)
-        return {
+        
+        result = {
             'price': ticker.get('last', ticker.get('close')),
             'bid': ticker.get('bid'),
             'ask': ticker.get('ask'),
@@ -372,6 +480,27 @@ def fetch_latest_price(symbol, exchange_name='binance'):
             'symbol': symbol,
             'exchange': exchange_name
         }
+        
+        logger.info(f"Successfully fetched price for {symbol}: ${result['price']}")
+        return result
+        
     except Exception as e:
-        print(f"Error fetching latest price for {symbol}: {e}")
+        logger.error(f"Unexpected error fetching latest price for {symbol}: {e}")
         return None
+
+
+def get_fetch_error_message(symbol: str, operation: str = "data") -> str:
+    """
+    Generate a clear error message for frontend display when fetch operations fail.
+    
+    Args:
+        symbol: Trading symbol that failed
+        operation: Type of operation that failed ('data', 'price')
+    
+    Returns:
+        str: User-friendly error message
+    """
+    if operation == "price":
+        return f"Error al obtener el precio actual de {symbol}. Verifique la conexión a internet y que el símbolo sea válido."
+    else:
+        return f"Error al obtener datos históricos de {symbol}. Verifique la conexión a internet y que el símbolo sea válido."
