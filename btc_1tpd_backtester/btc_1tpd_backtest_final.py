@@ -22,7 +22,7 @@ from .plot_results import create_comprehensive_report
 class SimpleTradingStrategy:
     """Simplified trading strategy that works."""
     
-    def __init__(self, config):
+    def __init__(self, config, daily_data=None):
         """Initialize strategy with configuration parameters."""
         self.config = config
         self.risk_usdt = config.get('risk_usdt', 20.0)
@@ -44,10 +44,17 @@ class SimpleTradingStrategy:
         self.commission_rate = config.get('commission_rate', 0.001)  # 0.1% default
         self.slippage_rate = config.get('slippage_rate', 0.0005)     # 0.05% default
         
+        # Daily trend filter
+        self.daily_data = daily_data
+        self.use_daily_trend_filter = config.get('use_daily_trend_filter', False)
+        
+        # Reentry on trend change
+        self.allow_reentry_on_trend_change = config.get('allow_reentry_on_trend_change', False)
+        
         # Daily state
         self.daily_pnl = 0.0
         self.daily_trades = 0
-        self.max_daily_trades = 1
+        self.max_daily_trades = config.get('max_daily_trades', 1)
     
     def reset_daily_state(self):
         """Reset daily tracking variables."""
@@ -154,6 +161,95 @@ class SimpleTradingStrategy:
             return 'long' if trend_score >= 0 else 'short'
         except Exception:
             return 'long'  # Default fallback
+    
+    def compute_daily_trend(self, date):
+        """Compute daily trend direction using daily data."""
+        if not self.use_daily_trend_filter or self.daily_data is None or self.daily_data.empty:
+            return None  # No trend filter
+        
+        try:
+            # Convert date to datetime if needed
+            if hasattr(date, 'date'):
+                target_date = date.date()
+            else:
+                target_date = date
+            
+            # Find the daily data for this date
+            daily_candle = None
+            for idx, row in self.daily_data.iterrows():
+                if idx.date() == target_date:
+                    daily_candle = row
+                    break
+            
+            if daily_candle is None:
+                return None  # No daily data for this date
+            
+            # Method 1: Compare close vs open
+            price_change = daily_candle['close'] - daily_candle['open']
+            
+            # Method 2: EMA comparison (if we have enough daily data)
+            if len(self.daily_data) >= 5:
+                # Get last 5 days including current
+                recent_data = self.daily_data.tail(5)
+                ema_fast = recent_data['close'].ewm(span=3, adjust=False).mean().iloc[-1]
+                ema_slow = recent_data['close'].ewm(span=5, adjust=False).mean().iloc[-1]
+                ema_bias = ema_fast - ema_slow
+            else:
+                ema_bias = 0
+            
+            # Method 3: 5-day average comparison
+            if len(self.daily_data) >= 5:
+                avg_5d = self.daily_data['close'].tail(5).mean()
+                current_close = daily_candle['close']
+                avg_bias = current_close - avg_5d
+            else:
+                avg_bias = 0
+            
+            # Combine signals with weights
+            trend_score = (price_change * 0.5 + ema_bias * 0.3 + avg_bias * 0.2)
+            
+            return 'long' if trend_score >= 0 else 'short'
+        except Exception:
+            return None  # Error in trend calculation
+    
+    def detect_intraday_trend_change(self, data, current_side, entry_time):
+        """Detect if there's been a significant intraday trend change since entry."""
+        if not self.allow_reentry_on_trend_change:
+            return False, None
+        
+        try:
+            # Get data after entry time
+            post_entry_data = data[data.index > entry_time]
+            if len(post_entry_data) < 10:  # Need enough data for trend analysis
+                return False, None
+            
+            # Calculate EMA15 for trend detection
+            ema15 = post_entry_data['close'].ewm(span=15, adjust=False).mean()
+            
+            # Check for trend reversal using EMA slope
+            if len(ema15) >= 5:
+                recent_slope = ema15.iloc[-1] - ema15.iloc[-5]
+                if current_side == 'long' and recent_slope < -0.001:  # Negative slope for long
+                    return True, post_entry_data.index[-1]
+                elif current_side == 'short' and recent_slope > 0.001:  # Positive slope for short
+                    return True, post_entry_data.index[-1]
+            
+            # Check for ADX divergence (if we can calculate it)
+            if len(post_entry_data) >= 14:
+                try:
+                    from .indicators import adx
+                    adx_values = adx(post_entry_data, 14)
+                    if not adx_values.empty and len(adx_values) >= 3:
+                        # Check if ADX is declining (trend weakening)
+                        adx_slope = adx_values.iloc[-1] - adx_values.iloc[-3]
+                        if adx_slope < -2:  # Significant ADX decline
+                            return True, post_entry_data.index[-1]
+                except:
+                    pass  # ADX calculation failed, continue without it
+            
+            return False, None
+        except Exception:
+            return False, None
     
     def check_ema15_pullback_conditions(self, ltf_data, side):
         """Lightweight EMA15 pullback fallback similar to strategy.py."""
@@ -266,6 +362,15 @@ class SimpleTradingStrategy:
                 high_price = candle['high']
                 low_price = candle['low']
                 close_price = candle['close']
+                
+                # Check for intraday trend change
+                if self.allow_reentry_on_trend_change:
+                    trend_changed, change_time = self.detect_intraday_trend_change(day_data, side, entry_time)
+                    if trend_changed and timestamp >= change_time:
+                        exit_time = timestamp
+                        exit_price = close_price
+                        exit_reason = 'trend_flip_exit'
+                        break
                 
                 # Determine which level is closer to open price (convention)
                 if side == 'long':
@@ -395,6 +500,12 @@ class SimpleTradingStrategy:
         # Reset daily state
         self.reset_daily_state()
         
+        # Check daily trend filter first
+        if self.use_daily_trend_filter:
+            daily_trend = self.compute_daily_trend(date)
+            if daily_trend is None:
+                return trades  # Skip if no daily trend data available
+        
         # If in full_day_trading, split session_data (first 24h) for entries/indicators and keep full day_data (possibly extended) for exits
         if self.full_day_trading:
             session_start = pd.Timestamp(date, tz='UTC')
@@ -406,23 +517,45 @@ class SimpleTradingStrategy:
         # Use new fallback direction detection
         def _preferred_side(df: pd.DataFrame) -> str:
             return self.detect_fallback_direction(df)
+        
+        # Main trading loop - allows multiple trades per day if reentry is enabled
+        current_data = day_data.copy()
+        last_exit_time = None
+        
+        while self.can_trade_today() and not current_data.empty:
+            # If we have a last exit time, trim data to continue from there
+            if last_exit_time is not None:
+                current_data = current_data[current_data.index > last_exit_time]
+                if current_data.empty:
+                    break
+                
+                # Update session_data for the remaining session
+                if self.full_day_trading:
+                    session_data = current_data[(current_data.index >= session_start) & (current_data.index < session_end)]
+                else:
+                    session_data = current_data
+                
+                if session_data.empty:
+                    break
 
-        if len(session_data) < 50:  # Need enough data for indicators
-            if self.force_one_trade:
-                # Try fallback even with limited data
-                pref = _preferred_side(session_data)
-                order = [pref, 'short' if pref == 'long' else 'long']
-                for side in order:
-                    ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, side)
-                    if ok and fb:
-                        # Use new fallback entry time selection
-                        best_entry_time = self.find_best_fallback_entry_time(session_data)
-                        candidate = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
+            # Try to find a trade in the current data slice
+            trade_found = False
+            
+            if len(session_data) < 50:  # Need enough data for indicators
+                if self.force_one_trade:
+                    # Try fallback even with limited data
+                    pref = _preferred_side(session_data)
+                    order = [pref, 'short' if pref == 'long' else 'long']
+                    for side in order:
+                        ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, side)
+                        if ok and fb:
+                            # Use new fallback entry time selection
+                            best_entry_time = self.find_best_fallback_entry_time(session_data)
+                            candidate = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
                         
-                        # Check if future candles exist for the selected entry time
-                        if not day_data[day_data.index > candidate].empty:
-                            entry_ts = candidate
-                        else:
+                        # Find the next candle after the selected time for entry
+                        next_candles = day_data[day_data.index > candidate]
+                        if next_candles.empty:
                             # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
@@ -432,13 +565,12 @@ class SimpleTradingStrategy:
                             # If still no future candles, skip this trade
                             if day_data[day_data.index > entry_ts].empty:
                                 continue
+                            next_candles = day_data[day_data.index > entry_ts]
                         
-                        # Calculate entry price based on detected side and selected candle
-                        selected_candle = session_data.loc[entry_ts]
-                        if side == 'long':
-                            entry_price = selected_candle['high']  # Use high for bullish breakouts
-                        else:
-                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        # Use the next candle for entry
+                        next_candle = next_candles.iloc[0]
+                        entry_ts = next_candle.name
+                        entry_price = next_candle['open']  # Use opening price of next candle
                         
                         # Recalculate SL/TP with the new entry price and available data up to entry_ts
                         trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
@@ -487,10 +619,9 @@ class SimpleTradingStrategy:
                         best_entry_time = self.find_best_fallback_entry_time(session_data)
                         candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
                         
-                        # Check if future candles exist for the selected entry time
-                        if not day_data[day_data.index > candidate].empty:
-                            entry_ts = candidate
-                        else:
+                        # Find the next candle after the selected time for entry
+                        next_candles = day_data[day_data.index > candidate]
+                        if next_candles.empty:
                             # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
@@ -500,13 +631,12 @@ class SimpleTradingStrategy:
                             # If still no future candles, skip this trade
                             if day_data[day_data.index > entry_ts].empty:
                                 continue
+                            next_candles = day_data[day_data.index > entry_ts]
                         
-                        # Calculate entry price based on detected side and selected candle
-                        selected_candle = session_data.loc[entry_ts]
-                        if side == 'long':
-                            entry_price = selected_candle['high']  # Use high for bullish breakouts
-                        else:
-                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        # Use the next candle for entry
+                        next_candle = next_candles.iloc[0]
+                        entry_ts = next_candle.name
+                        entry_price = next_candle['open']  # Use opening price of next candle
                         
                         # Recalculate SL/TP with the new entry price and available data up to entry_ts
                         trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
@@ -565,10 +695,9 @@ class SimpleTradingStrategy:
                         best_entry_time = self.find_best_fallback_entry_time(session_data)
                         candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
                         
-                        # Check if future candles exist for the selected entry time
-                        if not day_data[day_data.index > candidate].empty:
-                            entry_ts = candidate
-                        else:
+                        # Find the next candle after the selected time for entry
+                        next_candles = day_data[day_data.index > candidate]
+                        if next_candles.empty:
                             # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
@@ -578,13 +707,12 @@ class SimpleTradingStrategy:
                             # If still no future candles, skip this trade
                             if day_data[day_data.index > entry_ts].empty:
                                 continue
+                            next_candles = day_data[day_data.index > entry_ts]
                         
-                        # Calculate entry price based on detected side and selected candle
-                        selected_candle = session_data.loc[entry_ts]
-                        if side == 'long':
-                            entry_price = selected_candle['high']  # Use high for bullish breakouts
-                        else:
-                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        # Use the next candle for entry
+                        next_candle = next_candles.iloc[0]
+                        entry_ts = next_candle.name
+                        entry_price = next_candle['open']  # Use opening price of next candle
                         
                         # Recalculate SL/TP with the new entry price and available data up to entry_ts
                         trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
@@ -621,11 +749,28 @@ class SimpleTradingStrategy:
         # Check for breakouts
         side, breakout_time, entry_price = self.check_breakout(entry_data, orb_high, orb_low)
         
+        # Apply daily trend filter to breakout direction
+        if side is not None and self.use_daily_trend_filter:
+            daily_trend = self.compute_daily_trend(date)
+            if daily_trend is not None and side != daily_trend:
+                # Cancel breakout if it goes against daily trend
+                side = None
+                breakout_time = None
+                entry_price = None
+        
         if side is None:
             if self.force_one_trade:
                 # Try fallback when no breakout detected
                 pref = _preferred_side(session_data)
                 order = [pref, 'short' if pref == 'long' else 'long']
+                
+                # Apply daily trend filter to fallback direction
+                if self.use_daily_trend_filter:
+                    daily_trend = self.compute_daily_trend(date)
+                    if daily_trend is not None:
+                        # Only allow fallback in the direction of daily trend
+                        order = [daily_trend]
+                
                 for fallback_side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, fallback_side)
                     if ok and fb:
@@ -633,10 +778,9 @@ class SimpleTradingStrategy:
                         best_entry_time = self.find_best_fallback_entry_time(session_data)
                         candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
                         
-                        # Check if future candles exist for the selected entry time
-                        if not day_data[day_data.index > candidate].empty:
-                            entry_ts = candidate
-                        else:
+                        # Find the next candle after the selected time for entry
+                        next_candles = day_data[day_data.index > candidate]
+                        if next_candles.empty:
                             # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
@@ -646,13 +790,12 @@ class SimpleTradingStrategy:
                             # If still no future candles, skip this trade
                             if day_data[day_data.index > entry_ts].empty:
                                 continue
+                            next_candles = day_data[day_data.index > entry_ts]
                         
-                        # Calculate entry price based on detected side and selected candle
-                        selected_candle = session_data.loc[entry_ts]
-                        if fallback_side == 'long':
-                            entry_price = selected_candle['high']  # Use high for bullish breakouts
-                        else:
-                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        # Use the next candle for entry
+                        next_candle = next_candles.iloc[0]
+                        entry_ts = next_candle.name
+                        entry_price = next_candle['open']  # Use opening price of next candle
                         
                         # Recalculate SL/TP with the new entry price and available data up to entry_ts
                         trade_params = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
@@ -702,10 +845,9 @@ class SimpleTradingStrategy:
                         best_entry_time = self.find_best_fallback_entry_time(session_data)
                         candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
                         
-                        # Check if future candles exist for the selected entry time
-                        if not day_data[day_data.index > candidate].empty:
-                            entry_ts = candidate
-                        else:
+                        # Find the next candle after the selected time for entry
+                        next_candles = day_data[day_data.index > candidate]
+                        if next_candles.empty:
                             # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
@@ -715,13 +857,12 @@ class SimpleTradingStrategy:
                             # If still no future candles, skip this trade
                             if day_data[day_data.index > entry_ts].empty:
                                 continue
+                            next_candles = day_data[day_data.index > entry_ts]
                         
-                        # Calculate entry price based on detected side and selected candle
-                        selected_candle = session_data.loc[entry_ts]
-                        if fallback_side == 'long':
-                            entry_price = selected_candle['high']  # Use high for bullish breakouts
-                        else:
-                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        # Use the next candle for entry
+                        next_candle = next_candles.iloc[0]
+                        entry_ts = next_candle.name
+                        entry_price = next_candle['open']  # Use opening price of next candle
                         
                         # Recalculate SL/TP with the new entry price and available data up to entry_ts
                         trade_params = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
@@ -778,10 +919,9 @@ class SimpleTradingStrategy:
                     best_entry_time = self.find_best_fallback_entry_time(session_data)
                     candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
                     
-                    # Check if future candles exist for the selected entry time
-                    if not day_data[day_data.index > candidate].empty:
-                        entry_ts = candidate
-                    else:
+                    # Find the next candle after the selected time for entry
+                    next_candles = day_data[day_data.index > candidate]
+                    if next_candles.empty:
                         # Walk backwards in session_data to find a timestamp with a following candle in day_data
                         entry_ts = candidate
                         for ts in reversed(session_data.index.tolist()):
@@ -791,13 +931,12 @@ class SimpleTradingStrategy:
                         # If still no future candles, skip this trade
                         if day_data[day_data.index > entry_ts].empty:
                             continue
+                        next_candles = day_data[day_data.index > entry_ts]
                     
-                    # Calculate entry price based on detected side and selected candle
-                    selected_candle = session_data.loc[entry_ts]
-                    if fallback_side == 'long':
-                        entry_price = selected_candle['high']  # Use high for bullish breakouts
-                    else:
-                        entry_price = selected_candle['low']   # Use low for bearish breakouts
+                    # Use the next candle for entry
+                    next_candle = next_candles.iloc[0]
+                    entry_ts = next_candle.name
+                    entry_price = next_candle['open']  # Use opening price of next candle
                     
                     # Recalculate SL/TP with the new entry price and available data up to entry_ts
                     trade_params_new = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
@@ -820,28 +959,28 @@ class SimpleTradingStrategy:
         if (exit_info is None or not isinstance(exit_info, dict)) and self.force_one_trade:
             # Use new fallback entry time selection
             best_entry_time = self.find_best_fallback_entry_time(session_data)
-            entry_time = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
+            candidate = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
             
-            # Ensure we have future candles for exit simulation
-            if day_data[day_data.index > entry_time].empty:
+            # Find the next candle after the selected time for entry
+            next_candles = day_data[day_data.index > candidate]
+            if next_candles.empty:
                 # Walk backwards to find a timestamp with future candles
                 for ts in reversed(session_data.index.tolist()):
                     if not day_data[day_data.index > ts].empty:
-                        entry_time = ts
+                        candidate = ts
                         break
                 # If still no future candles, skip this trade
-                if day_data[day_data.index > entry_time].empty:
+                if day_data[day_data.index > candidate].empty:
                     return trades
+                next_candles = day_data[day_data.index > candidate]
+            
+            # Use the next candle for entry
+            next_candle = next_candles.iloc[0]
+            entry_time = next_candle.name
+            entry_price = next_candle['open']  # Use opening price of next candle
             
             # Use new fallback direction detection
             side = self.detect_fallback_direction(session_data)
-            
-            # Calculate entry price based on detected side and selected candle
-            selected_candle = session_data.loc[entry_time]
-            if side == 'long':
-                entry_price = selected_candle['high']  # Use high for bullish breakouts
-            else:
-                entry_price = selected_candle['low']   # Use low for bearish breakouts
             
             # Use ORB range for stop/take profit if available, otherwise use minimal ATR
             orb_high, orb_low = self.get_orb_levels(session_data, self.orb_window)
@@ -911,6 +1050,21 @@ def run_backtest(symbol, since, until, config):
     print("\n📊 Fetching historical data...")
     data = fetch_historical_data(symbol, since, until, "15m")
     
+    # Fetch daily data for trend filtering if enabled
+    daily_data = None
+    if config.get('use_daily_trend_filter', False):
+        print("📈 Fetching daily data for trend filtering...")
+        try:
+            daily_data = fetch_historical_data(symbol, since, until, "1d")
+            if daily_data is not None and not daily_data.empty:
+                print(f"✅ Daily data: {len(daily_data)} candles")
+            else:
+                print("⚠️ No daily data available, disabling trend filter")
+                config['use_daily_trend_filter'] = False
+        except Exception as e:
+            print(f"⚠️ Could not fetch daily data: {e}")
+            config['use_daily_trend_filter'] = False
+    
     # If full_day_trading, also fetch next day to allow exits after midnight
     if config.get('full_day_trading', False):
         try:
@@ -940,7 +1094,7 @@ def run_backtest(symbol, since, until, config):
     print(f"✅ Data: {len(data)} candles")
     
     # Initialize strategy
-    strategy = SimpleTradingStrategy(config)
+    strategy = SimpleTradingStrategy(config, daily_data)
     
     # Process each day
     print("\n🔄 Running backtest...")
