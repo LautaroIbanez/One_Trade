@@ -1,6 +1,7 @@
 """
 Trading Strategy Module
 Implements the 1 trade per day BTC strategy with ORB and fallback logic.
+Now supports delegation to MultifactorStrategy.
 """
 
 import pandas as pd
@@ -12,6 +13,7 @@ from .indicators import (
     calculate_r_multiple, get_macro_bias, is_trading_session,
     is_entry_window, is_orb_window
 )
+from .strategy_multifactor import MultifactorStrategy
 
 
 class TradingStrategy:
@@ -20,6 +22,16 @@ class TradingStrategy:
     def __init__(self, config):
         """Initialize strategy with configuration parameters."""
         self.config = config
+        
+        # Check if we should use multifactor strategy
+        self.use_multifactor = config.get('use_multifactor_strategy', False)
+        
+        if self.use_multifactor:
+            # Delegate to MultifactorStrategy
+            self.multifactor_strategy = MultifactorStrategy(config)
+            return
+        
+        # Original ORB strategy parameters
         self.signal_tf = config['signal_tf']
         self.risk_usdt = config['risk_usdt']
         self.daily_target = config['daily_target']
@@ -31,6 +43,8 @@ class TradingStrategy:
         self.atr_mult_orb = config['atr_mult_orb']
         self.atr_mult_fallback = config['atr_mult_fallback']
         self.tp_multiplier = config['tp_multiplier']
+        self.target_r_multiple = config.get('target_r_multiple', self.tp_multiplier)
+        self.risk_reward_ratio = config.get('risk_reward_ratio', self.tp_multiplier)
         
         # Trading windows and full day trading
         self.orb_window = config.get('orb_window', (11, 12))
@@ -64,6 +78,9 @@ class TradingStrategy:
         
     def reset_daily_state(self):
         """Reset daily tracking variables."""
+        if self.use_multifactor:
+            return self.multifactor_strategy.reset_daily_state()
+        
         self.daily_pnl = 0.0
         self.daily_trades = 0
     
@@ -112,6 +129,9 @@ class TradingStrategy:
         
     def can_trade_today(self):
         """Check if trading is allowed today."""
+        if self.use_multifactor:
+            return self.multifactor_strategy.can_trade_today()
+        
         return (self.daily_trades < self.max_daily_trades and 
                 not self.is_daily_target_reached() and 
                 not self.is_daily_loss_limit_reached())
@@ -147,9 +167,9 @@ class TradingStrategy:
             return entry_price + (atr_value * atr_mult)
     
     def get_take_profit_price(self, entry_price, stop_loss, side):
-        """Calculate take profit price."""
+        """Calculate take profit price based on target R-multiple."""
         risk = abs(entry_price - stop_loss)
-        reward = risk * self.tp_multiplier
+        reward = risk * self.target_r_multiple
         
         if side == 'long':
             return entry_price + reward
@@ -301,6 +321,27 @@ class TradingStrategy:
     
     def get_trade_signal(self, ltf_data, htf_data, current_time):
         """Get trading signal for current timestamp."""
+        if self.use_multifactor:
+            # Delegate to multifactor strategy
+            # Convert to the format expected by MultifactorStrategy
+            date = current_time.date()
+            trades = self.multifactor_strategy.process_day(ltf_data, date)
+            
+            if trades:
+                trade = trades[0]  # Get first trade
+                return {
+                    'side': trade['side'],
+                    'strategy': 'multifactor',
+                    'entry_price': trade['entry_price'],
+                    'stop_loss': trade['sl'],
+                    'take_profit': trade['tp'],
+                    'reliability_score': trade.get('reliability_score', 0.0),
+                    'position_size': self.calculate_position_size(trade['entry_price'], trade['sl']),
+                    'effective_risk_usdt': abs(trade['entry_price'] - trade['sl']) * self.calculate_position_size(trade['entry_price'], trade['sl'])
+                }
+            return None
+        
+        # Original ORB strategy logic
         try:
             # Check if we can trade today
             if not self.can_trade_today():

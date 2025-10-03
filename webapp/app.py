@@ -56,6 +56,31 @@ BASE_CONFIG = {
     "entry_window": (11, 14),  # Entry window in local time (AR)
     "exit_window": (20, 22),   # Exit window in local time (AR)
     "session_timezone": "America/Argentina/Buenos_Aires",
+    # Multifactor strategy parameters
+    "use_multifactor_strategy": False,  # Enable multifactor strategy
+    "min_reliability_score": 0.6,       # Minimum reliability score for signals
+    "ema_fast": 12,                     # Fast EMA period
+    "ema_slow": 26,                     # Slow EMA period
+    "adx_period": 14,                   # ADX calculation period
+    "rsi_period": 14,                   # RSI calculation period
+    "rsi_oversold": 30,                 # RSI oversold level
+    "rsi_overbought": 70,               # RSI overbought level
+    "macd_fast": 12,                    # MACD fast period
+    "macd_slow": 26,                    # MACD slow period
+    "macd_signal": 9,                   # MACD signal period
+    "atr_multiplier": 2.0,              # ATR multiplier for stop loss
+    "dynamic_sl": True,                 # Enable dynamic stop loss
+    "trailing_stop": False,             # Enable trailing stop
+    "trailing_stop_atr": 1.5,           # Trailing stop ATR multiplier
+    "volume_confirmation": True,        # Enable volume confirmation
+    "volume_threshold": 1.2,            # Volume threshold (1.2x average)
+    "momentum_confirmation": True,      # Enable momentum confirmation
+    # Validation parameters
+    "min_win_rate": 80.0,               # Minimum win rate percentage
+    "min_pnl": 0.0,                     # Minimum PnL (must be > 0)
+    "min_avg_r": 1.0,                   # Minimum average R-multiple
+    "min_trades": 10,                   # Minimum number of trades
+    "min_profit_factor": 1.2,           # Minimum profit factor
     # When rebuilding, start date or lookback control
     "backtest_start_date": None,  # ISO date string e.g., "2024-01-01"
     "lookback_days": 30,
@@ -64,7 +89,7 @@ MODE_CONFIG = {
     "conservative": {
         "risk_usdt": 15.0,
         "atr_mult_orb": 1.5, 
-        "tp_multiplier": 1.5, 
+        "tp_multiplier": 1.0,  # Exact 1R target 
         "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
         "entry_window": (11, 14),  # Entry window in AR time
         "exit_window": (20, 22),   # Exit window in AR time
@@ -74,12 +99,26 @@ MODE_CONFIG = {
         "leverage": 1.0,
         "force_one_trade": True,
         "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires"
+        "session_timezone": "America/Argentina/Buenos_Aires",
+        # Multifactor strategy parameters for conservative mode
+        "use_multifactor_strategy": False,  # Use ORB by default
+        "min_reliability_score": 0.7,       # Higher reliability requirement
+        "atr_multiplier": 1.5,              # Tighter stops
+        "volume_threshold": 1.5,            # Higher volume requirement
+        # R-multiple configuration
+        "target_r_multiple": 1.0,           # Target 1R per trade
+        "risk_reward_ratio": 1.0,           # 1:1 risk-reward ratio
+        # Validation parameters for conservative mode
+        "min_win_rate": 85.0,               # Higher win rate requirement
+        "min_pnl": 0.0,                     # Must be profitable
+        "min_avg_r": 1.0,                   # Target 1R average
+        "min_trades": 15,                   # More trades for statistical significance
+        "min_profit_factor": 1.5,           # Higher profit factor requirement
     },
     "moderate": {
         "risk_usdt": 25.0,
         "atr_mult_orb": 1.2, 
-        "tp_multiplier": 2.0, 
+        "tp_multiplier": 1.5,  # Exact 1.5R target 
         "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
         "entry_window": (11, 14),  # Entry window in AR time
         "exit_window": (20, 22),   # Exit window in AR time
@@ -90,12 +129,26 @@ MODE_CONFIG = {
         "force_one_trade": True,
         "fallback_mode": "EMA15_pullback",
         "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires"
+        "session_timezone": "America/Argentina/Buenos_Aires",
+        # Multifactor strategy parameters for moderate mode
+        "use_multifactor_strategy": True,   # Use multifactor by default
+        "min_reliability_score": 0.6,       # Standard reliability requirement
+        "atr_multiplier": 2.0,              # Standard stops
+        "volume_threshold": 1.2,            # Standard volume requirement
+        # R-multiple configuration
+        "target_r_multiple": 1.5,           # Target 1.5R per trade
+        "risk_reward_ratio": 1.5,           # 1.5:1 risk-reward ratio
+        # Validation parameters for moderate mode
+        "min_win_rate": 80.0,               # Standard win rate requirement
+        "min_pnl": 0.0,                     # Must be profitable
+        "min_avg_r": 1.5,                   # Target 1.5R average
+        "min_trades": 12,                   # Standard trade count
+        "min_profit_factor": 1.3,           # Standard profit factor requirement
     },
     "aggressive": {
         "risk_usdt": 40.0,
         "atr_mult_orb": 1.0, 
-        "tp_multiplier": 2.5, 
+        "tp_multiplier": 2.0,  # Exact 2R target 
         "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
         "entry_window": (11, 14),  # Entry window in AR time
         "exit_window": (20, 22),   # Exit window in AR time
@@ -105,7 +158,22 @@ MODE_CONFIG = {
         "leverage": 1.0,
         "force_one_trade": True,
         "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires"
+        "session_timezone": "America/Argentina/Buenos_Aires",
+        # Multifactor strategy parameters for aggressive mode
+        "use_multifactor_strategy": True,   # Use multifactor by default
+        "min_reliability_score": 0.5,       # Lower reliability requirement
+        "atr_multiplier": 2.5,              # Wider stops
+        "volume_threshold": 1.0,            # Lower volume requirement
+        "trailing_stop": True,              # Enable trailing stop
+        # R-multiple configuration
+        "target_r_multiple": 2.0,           # Target 2R per trade
+        "risk_reward_ratio": 2.0,           # 2:1 risk-reward ratio
+        # Validation parameters for aggressive mode
+        "min_win_rate": 75.0,               # Lower win rate requirement
+        "min_pnl": 0.0,                     # Must be profitable
+        "min_avg_r": 2.0,                   # Target 2R average
+        "min_trades": 10,                   # Minimum trade count
+        "min_profit_factor": 1.2,           # Lower profit factor requirement
     },
 }
 
@@ -251,6 +319,12 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
+        
+        # Check if strategy is suitable
+        if not results.is_strategy_suitable():
+            print("\n⚠️ WARNING: Strategy failed validation criteria!")
+            print("Consider adjusting parameters or strategy configuration.")
+            print(f"Validation summary: {results.get_validation_summary()}")
 
         # Sync with live active trade state
         try:
@@ -373,6 +447,8 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
                 "mode": mode,
                 "full_day_trading": config.get("full_day_trading", False),
                 "session_trading": config.get("session_trading", True),
+                "validation_results": results.validation_results if 'results' in locals() else None,
+                "is_strategy_suitable": results.is_strategy_suitable() if 'results' in locals() else None,
                 "backtest_start_date": (start_override or default_since),
             }
             sidecar_out.write_text(_json.dumps(meta_payload, indent=2, ensure_ascii=False))

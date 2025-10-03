@@ -22,6 +22,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from .utils import fetch_historical_data
 from .indicators import ema, atr, adx, vwap
 from .plot_results import create_comprehensive_report
+from .strategy_multifactor import MultifactorStrategy
+from .backtester import BacktestResults
 
 
 class SimpleTradingStrategy:
@@ -30,12 +32,24 @@ class SimpleTradingStrategy:
     def __init__(self, config, daily_data=None):
         """Initialize strategy with configuration parameters."""
         self.config = config
+        
+        # Check if we should use multifactor strategy
+        self.use_multifactor = config.get('use_multifactor_strategy', False)
+        
+        if self.use_multifactor:
+            # Delegate to MultifactorStrategy
+            self.multifactor_strategy = MultifactorStrategy(config)
+            return
+        
+        # Original SimpleTradingStrategy parameters
         self.risk_usdt = config.get('risk_usdt', 20.0)
         self.daily_target = config.get('daily_target', 50.0)
         self.daily_max_loss = config.get('daily_max_loss', -30.0)
         self.adx_min = config.get('adx_min', 15.0)
         self.atr_mult = config.get('atr_mult_orb', 1.2)
         self.tp_multiplier = config.get('tp_multiplier', 2.0)
+        self.target_r_multiple = config.get('target_r_multiple', self.tp_multiplier)
+        self.risk_reward_ratio = config.get('risk_reward_ratio', self.tp_multiplier)
         # Fallback/forcing
         self.force_one_trade = config.get('force_one_trade', False)
         self.fallback_mode = config.get('fallback_mode', 'EMA15_pullback')
@@ -342,6 +356,19 @@ class SimpleTradingStrategy:
             stop_loss = entry_price + (atr_value * self.atr_mult)
             take_profit = entry_price - (atr_value * self.tp_multiplier)
         
+        # Verificar que el TP corresponde al target R-multiple
+        risk_amount = abs(entry_price - stop_loss)
+        expected_reward = risk_amount * self.target_r_multiple
+        
+        if side == 'long':
+            expected_tp = entry_price + expected_reward
+        else:
+            expected_tp = entry_price - expected_reward
+        
+        # Ajustar TP si hay diferencia significativa
+        if abs(take_profit - expected_tp) > 0.01:
+            take_profit = expected_tp
+        
         # Calculate position size
         risk_amount = self.risk_usdt
         price_diff = abs(entry_price - stop_loss)
@@ -557,6 +584,10 @@ class SimpleTradingStrategy:
     
     def process_day(self, day_data, date):
         """Process trading for a single day."""
+        if self.use_multifactor:
+            # Delegate to MultifactorStrategy
+            return self.multifactor_strategy.process_day(day_data, date)
+        
         trades = []
         
         # Reset daily state
@@ -1108,7 +1139,7 @@ class SimpleTradingStrategy:
 
 
 def run_backtest(symbol, since, until, config):
-    """Run the backtest."""
+    """Run the backtest with validation."""
     print(f"🚀 BTC 1 Trade Per Day Backtester - FINAL VERSION")
     print("=" * 60)
     print(f"Symbol: {symbol}")
@@ -1204,7 +1235,30 @@ def run_backtest(symbol, since, until, config):
             trades = strategy.process_day(day_data, date)
             all_trades.extend(trades)
     
-    return pd.DataFrame(all_trades)
+    # Create DataFrame from trades
+    trades_df = pd.DataFrame(all_trades)
+    
+    # Add validation configuration
+    validation_config = {
+        'min_win_rate': config.get('min_win_rate', 80.0),
+        'min_pnl': config.get('min_pnl', 0.0),
+        'min_avg_r': config.get('min_avg_r', 1.0),
+        'min_trades': config.get('min_trades', 10),
+        'min_profit_factor': config.get('min_profit_factor', 1.2)
+    }
+    
+    # Create BacktestResults object
+    results = BacktestResults(trades_df, validation_config)
+    
+    # Display results
+    results.display_summary()
+    
+    # Check if strategy is suitable
+    if not results.is_strategy_suitable():
+        print("\n⚠️ WARNING: Strategy failed validation criteria!")
+        print("Consider adjusting parameters or strategy configuration.")
+    
+    return results
 
 
 def display_summary(trades_df):

@@ -1,5 +1,6 @@
 """
 Today's trading signal module for BTC 1 Trade Per Day strategy.
+Now supports both ORB and Multifactor strategies.
 """
 
 from datetime import datetime, timezone, timedelta
@@ -44,7 +45,7 @@ def _find_breakout_in_entry_window(entry_data: pd.DataFrame, orb_high: float, or
 
 def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
     """
-    Get today's trade recommendation based on ORB breakout strategy.
+    Get today's trade recommendation based on ORB breakout or Multifactor strategy.
     
     Args:
         symbol: Trading symbol (e.g., "BTC/USDT:USDT")
@@ -65,11 +66,171 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
         "adx_min": 15.0,
         "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
         "entry_window": (1, 24),  # Can enter throughout the day
-        "full_day_trading": True  # Always True for 24h mode
+        "full_day_trading": True,  # Always True for 24h mode
+        "use_multifactor_strategy": False  # Use ORB by default
     }
     
     # Merge with provided config
     config = {**default_config, **config}
+    
+    # Check if we should use multifactor strategy
+    if config.get('use_multifactor_strategy', False):
+        return _get_multifactor_recommendation(symbol, config, now)
+    else:
+        return _get_orb_recommendation(symbol, config, now)
+
+
+def _get_multifactor_recommendation(symbol: str, config: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    """
+    Get trade recommendation using MultifactorStrategy.
+    
+    Args:
+        symbol: Trading symbol
+        config: Configuration dictionary
+        now: Current time
+    
+    Returns:
+        Dictionary with trade recommendation details
+    """
+    # Prepare cache path
+    repo_root = Path(__file__).resolve().parents[2]
+    data_dir = repo_root / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = data_dir / "last_recommendation.json"
+    
+    # Try to fetch data
+    try:
+        from btc_1tpd_backtester.utils import fetch_historical_data
+        from btc_1tpd_backtester.strategy_multifactor import MultifactorStrategy
+    except Exception:
+        fetch_historical_data = None
+        MultifactorStrategy = None
+    
+    if fetch_historical_data is None or MultifactorStrategy is None:
+        # Fallback to cache
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                cached["from_cache"] = True
+                return cached
+            except Exception:
+                pass
+        return {
+            "status": "no_data",
+            "symbol": symbol,
+            "date": now.strftime("%Y-%m-%d"),
+            "notes": "MultifactorStrategy not available",
+            "from_cache": True
+        }
+    
+    # Fetch today's data
+    try:
+        today = now.date()
+        since = today.isoformat()
+        until = today.isoformat()
+        df = fetch_historical_data(symbol, since, until, "15m")
+        
+        # Extend data if needed for exit windows
+        if config.get('session_trading', False) and config.get('exit_window'):
+            next_day = (today + timedelta(days=1)).isoformat()
+            extra = fetch_historical_data(symbol, until, next_day, "15m")
+            if extra is not None and not extra.empty:
+                try:
+                    df = pd.concat([df, extra]).sort_index().drop_duplicates()
+                except Exception:
+                    pass
+        
+        # Filter out future candles
+        tolerance = timedelta(minutes=5)
+        cutoff_time = now + tolerance
+        if df is not None and not df.empty:
+            df = df[df.index <= cutoff_time]
+            
+    except Exception:
+        df = None
+    
+    # If no data, try cache
+    if df is None or df.empty:
+        if cache_file.exists():
+            try:
+                with open(cache_file, "r", encoding="utf-8") as f:
+                    cached = json.load(f)
+                cached["from_cache"] = True
+                return cached
+            except Exception:
+                pass
+        return {
+            "status": "no_data",
+            "symbol": symbol,
+            "date": now.strftime("%Y-%m-%d"),
+            "notes": "No data available for multifactor analysis",
+            "from_cache": True
+        }
+    
+    # Use MultifactorStrategy to get recommendation
+    try:
+        strategy = MultifactorStrategy(config)
+        trades = strategy.process_day(df, today)
+        
+        if trades:
+            trade = trades[0]  # Get first trade
+            rec = {
+                "status": "signal",
+                "symbol": symbol,
+                "date": today.strftime("%Y-%m-%d"),
+                "side": trade['side'],
+                "entry_time": trade['entry_time'].isoformat(),
+                "entry_price": float(trade['entry_price']),
+                "stop_loss": float(trade['sl']),
+                "take_profit": float(trade['tp']),
+                "reliability_score": trade.get('reliability_score', 0.0),
+                "notes": f"Multifactor signal (reliability: {trade.get('reliability_score', 0.0):.2f})",
+                "from_cache": False,
+                "strategy": "multifactor"
+            }
+        else:
+            rec = {
+                "status": "no_signal",
+                "symbol": symbol,
+                "date": today.strftime("%Y-%m-%d"),
+                "notes": "No multifactor signal generated",
+                "from_cache": False,
+                "strategy": "multifactor"
+            }
+    except Exception as e:
+        rec = {
+            "status": "error",
+            "symbol": symbol,
+            "date": today.strftime("%Y-%m-%d"),
+            "notes": f"Error in multifactor analysis: {str(e)}",
+            "from_cache": False,
+            "strategy": "multifactor"
+        }
+    
+    # Save to cache
+    try:
+        to_store = {**rec, "symbol": symbol, "date": now.strftime("%Y-%m-%d")}
+        with open(cache_file, "w", encoding="utf-8") as f:
+            json.dump(to_store, f, ensure_ascii=False, indent=2, default=str)
+    except Exception:
+        pass
+    
+    return rec
+
+
+def _get_orb_recommendation(symbol: str, config: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+    """
+    Get trade recommendation using ORB strategy (original logic).
+    
+    Args:
+        symbol: Trading symbol
+        config: Configuration dictionary
+        now: Current time
+    
+    Returns:
+        Dictionary with trade recommendation details
+    """
     
     # Prepare cache path
     repo_root = Path(__file__).resolve().parents[2]
@@ -153,13 +314,30 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                     atr_proxy = None
                 atr_mult = cfg.get('atr_mult_orb', 1.2)
                 tp_mult = cfg.get('tp_multiplier', 2.0)
+                target_r_multiple = cfg.get('target_r_multiple', tp_mult)
                 if atr_proxy and pd.notna(atr_proxy) and atr_proxy > 0:
                     if side == 'long':
-                        rec['stop_loss'] = float(entry_price - atr_proxy * atr_mult)
-                        rec['take_profit'] = float(entry_price + atr_proxy * tp_mult)
+                        stop_loss = entry_price - atr_proxy * atr_mult
+                        take_profit = entry_price + atr_proxy * tp_mult
                     else:
-                        rec['stop_loss'] = float(entry_price + atr_proxy * atr_mult)
-                        rec['take_profit'] = float(entry_price - atr_proxy * tp_mult)
+                        stop_loss = entry_price + atr_proxy * atr_mult
+                        take_profit = entry_price - atr_proxy * tp_mult
+                    
+                    # Verificar que el TP corresponde al target R-multiple
+                    risk_amount = abs(entry_price - stop_loss)
+                    expected_reward = risk_amount * target_r_multiple
+                    
+                    if side == 'long':
+                        expected_tp = entry_price + expected_reward
+                    else:
+                        expected_tp = entry_price - expected_reward
+                    
+                    # Ajustar TP si hay diferencia significativa
+                    if abs(take_profit - expected_tp) > 0.01:
+                        take_profit = expected_tp
+                    
+                    rec['stop_loss'] = float(stop_loss)
+                    rec['take_profit'] = float(take_profit)
             except Exception:
                 pass
             return rec
@@ -246,6 +424,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                         if atr_proxy and pd.notna(atr_proxy) and atr_proxy > 0:
                             atr_mult = config.get('atr_mult_orb', 1.2)
                             tp_mult = config.get('tp_multiplier', 2.0)
+                            target_r_multiple = config.get('target_r_multiple', tp_mult)
                             
                             if side == 'long':
                                 stop_loss = current_price - (atr_proxy * atr_mult)
@@ -253,6 +432,19 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                             else:
                                 stop_loss = current_price + (atr_proxy * atr_mult)
                                 take_profit = current_price - (atr_proxy * tp_mult)
+                            
+                            # Verificar que el TP corresponde al target R-multiple
+                            risk_amount = abs(current_price - stop_loss)
+                            expected_reward = risk_amount * target_r_multiple
+                            
+                            if side == 'long':
+                                expected_tp = current_price + expected_reward
+                            else:
+                                expected_tp = current_price - expected_reward
+                            
+                            # Ajustar TP si hay diferencia significativa
+                            if abs(take_profit - expected_tp) > 0.01:
+                                take_profit = expected_tp
                             
                             # Create fallback signal
                             rec = {
