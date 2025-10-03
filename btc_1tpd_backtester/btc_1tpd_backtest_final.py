@@ -94,6 +94,67 @@ class SimpleTradingStrategy:
         
         return None, None, None
 
+    def find_best_fallback_entry_time(self, session_data):
+        """Find the candle with highest intraday range or absolute displacement for fallback entry."""
+        if session_data.empty:
+            return None
+        
+        # Calculate intraday range for each candle
+        session_data = session_data.copy()
+        session_data['range'] = session_data['high'] - session_data['low']
+        session_data['abs_displacement'] = session_data['close'].diff().abs()
+        
+        # Find candle with maximum range
+        max_range_idx = session_data['range'].idxmax()
+        max_range_value = session_data.loc[max_range_idx, 'range']
+        
+        # Find candle with maximum absolute displacement
+        max_disp_idx = session_data['abs_displacement'].idxmax()
+        max_disp_value = session_data.loc[max_disp_idx, 'abs_displacement']
+        
+        # Choose the one with higher relative value (normalized by price)
+        max_range_price = session_data.loc[max_range_idx, 'close']
+        max_disp_price = session_data.loc[max_disp_idx, 'close']
+        
+        range_ratio = max_range_value / max_range_price if max_range_price > 0 else 0
+        disp_ratio = max_disp_value / max_disp_price if max_disp_price > 0 else 0
+        
+        # Return the timestamp with higher relative value
+        return max_range_idx if range_ratio >= disp_ratio else max_disp_idx
+    
+    def detect_fallback_direction(self, session_data):
+        """Detect fallback direction based on trend analysis."""
+        if session_data.empty or len(session_data) < 5:
+            return 'long'  # Default fallback
+        
+        try:
+            # Method 1: Compare close vs open
+            session_open = session_data['open'].iloc[0]
+            session_close = session_data['close'].iloc[-1]
+            price_change = session_close - session_open
+            
+            # Method 2: EMA15 slope analysis
+            if len(session_data) >= 15:
+                ema15 = session_data['close'].ewm(span=15, adjust=False).mean()
+                ema_slope = ema15.iloc[-1] - ema15.iloc[-5] if len(ema15) >= 5 else 0
+            else:
+                ema_slope = 0
+            
+            # Method 3: Simple moving average comparison
+            if len(session_data) >= 10:
+                sma_short = session_data['close'].rolling(5).mean().iloc[-1]
+                sma_long = session_data['close'].rolling(10).mean().iloc[-1]
+                sma_bias = sma_short - sma_long
+            else:
+                sma_bias = 0
+            
+            # Combine signals with weights
+            trend_score = (price_change * 0.4 + ema_slope * 0.3 + sma_bias * 0.3)
+            
+            return 'long' if trend_score >= 0 else 'short'
+        except Exception:
+            return 'long'  # Default fallback
+    
     def check_ema15_pullback_conditions(self, ltf_data, side):
         """Lightweight EMA15 pullback fallback similar to strategy.py."""
         try:
@@ -342,16 +403,9 @@ class SimpleTradingStrategy:
         else:
             session_data = day_data
 
-        # Determine preferred fallback side based on simple EMA15 bias
+        # Use new fallback direction detection
         def _preferred_side(df: pd.DataFrame) -> str:
-            try:
-                if df is None or df.empty or len(df) < 5:
-                    return 'long'
-                ema15_val = df['close'].ewm(span=15, adjust=False).mean().iloc[-1]
-                last_close = df['close'].iloc[-1]
-                return 'long' if last_close >= ema15_val else 'short'
-            except Exception:
-                return 'long'
+            return self.detect_fallback_direction(df)
 
         if len(session_data) < 50:  # Need enough data for indicators
             if self.force_one_trade:
@@ -361,8 +415,11 @@ class SimpleTradingStrategy:
                 for side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, side)
                     if ok and fb:
-                        # Choose an entry_time within session_data that has at least one future candle in full day_data
-                        candidate = fb_ts if fb_ts is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
+                        # Use new fallback entry time selection
+                        best_entry_time = self.find_best_fallback_entry_time(session_data)
+                        candidate = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
+                        
+                        # Check if future candles exist for the selected entry time
                         if not day_data[day_data.index > candidate].empty:
                             entry_ts = candidate
                         else:
@@ -372,11 +429,27 @@ class SimpleTradingStrategy:
                                 if not day_data[day_data.index > ts].empty:
                                     entry_ts = ts
                                     break
+                            # If still no future candles, skip this trade
+                            if day_data[day_data.index > entry_ts].empty:
+                                continue
+                        
+                        # Calculate entry price based on detected side and selected candle
+                        selected_candle = session_data.loc[entry_ts]
+                        if side == 'long':
+                            entry_price = selected_candle['high']  # Use high for bullish breakouts
+                        else:
+                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        
+                        # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                        trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
+                        if trade_params is None:
+                            continue  # Skip if we can't calculate proper parameters
+                        
                         fb_params = {
-                            'entry_price': fb['entry_price'],
-                            'stop_loss': fb['stop_loss'],
-                            'take_profit': fb['take_profit'],
-                            'position_size': fb['position_size'],
+                            'entry_price': entry_price,
+                            'stop_loss': trade_params['stop_loss'],
+                            'take_profit': trade_params['take_profit'],
+                            'position_size': trade_params['position_size'],
                             'entry_time': entry_ts
                         }
                         exit_info = self.simulate_trade_exit(fb_params, side, day_data)
@@ -410,20 +483,41 @@ class SimpleTradingStrategy:
                 for side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, side)
                     if ok and fb:
-                        candidate = fb_ts if fb_ts is not None else session_data.index[-1]
+                        # Use new fallback entry time selection
+                        best_entry_time = self.find_best_fallback_entry_time(session_data)
+                        candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
+                        
+                        # Check if future candles exist for the selected entry time
                         if not day_data[day_data.index > candidate].empty:
                             entry_ts = candidate
                         else:
+                            # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
                                 if not day_data[day_data.index > ts].empty:
                                     entry_ts = ts
                                     break
+                            # If still no future candles, skip this trade
+                            if day_data[day_data.index > entry_ts].empty:
+                                continue
+                        
+                        # Calculate entry price based on detected side and selected candle
+                        selected_candle = session_data.loc[entry_ts]
+                        if side == 'long':
+                            entry_price = selected_candle['high']  # Use high for bullish breakouts
+                        else:
+                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        
+                        # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                        trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
+                        if trade_params is None:
+                            continue  # Skip if we can't calculate proper parameters
+                        
                         fb_params = {
-                            'entry_price': fb['entry_price'],
-                            'stop_loss': fb['stop_loss'],
-                            'take_profit': fb['take_profit'],
-                            'position_size': fb['position_size'],
+                            'entry_price': entry_price,
+                            'stop_loss': trade_params['stop_loss'],
+                            'take_profit': trade_params['take_profit'],
+                            'position_size': trade_params['position_size'],
                             'entry_time': entry_ts
                         }
                         exit_info = self.simulate_trade_exit(fb_params, side, day_data)
@@ -467,20 +561,41 @@ class SimpleTradingStrategy:
                 for side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, side)
                     if ok and fb:
-                        candidate = fb_ts if fb_ts is not None else session_data.index[-1]
+                        # Use new fallback entry time selection
+                        best_entry_time = self.find_best_fallback_entry_time(session_data)
+                        candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
+                        
+                        # Check if future candles exist for the selected entry time
                         if not day_data[day_data.index > candidate].empty:
                             entry_ts = candidate
                         else:
+                            # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
                                 if not day_data[day_data.index > ts].empty:
                                     entry_ts = ts
                                     break
+                            # If still no future candles, skip this trade
+                            if day_data[day_data.index > entry_ts].empty:
+                                continue
+                        
+                        # Calculate entry price based on detected side and selected candle
+                        selected_candle = session_data.loc[entry_ts]
+                        if side == 'long':
+                            entry_price = selected_candle['high']  # Use high for bullish breakouts
+                        else:
+                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        
+                        # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                        trade_params = self.calculate_trade_params(side, entry_price, session_data, entry_ts)
+                        if trade_params is None:
+                            continue  # Skip if we can't calculate proper parameters
+                        
                         fb_params = {
-                            'entry_price': fb['entry_price'],
-                            'stop_loss': fb['stop_loss'],
-                            'take_profit': fb['take_profit'],
-                            'position_size': fb['position_size'],
+                            'entry_price': entry_price,
+                            'stop_loss': trade_params['stop_loss'],
+                            'take_profit': trade_params['take_profit'],
+                            'position_size': trade_params['position_size'],
                             'entry_time': entry_ts
                         }
                         exit_info = self.simulate_trade_exit(fb_params, side, day_data)
@@ -514,20 +629,41 @@ class SimpleTradingStrategy:
                 for fallback_side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, fallback_side)
                     if ok and fb:
-                        candidate = fb_ts if fb_ts is not None else session_data.index[-1]
+                        # Use new fallback entry time selection
+                        best_entry_time = self.find_best_fallback_entry_time(session_data)
+                        candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
+                        
+                        # Check if future candles exist for the selected entry time
                         if not day_data[day_data.index > candidate].empty:
                             entry_ts = candidate
                         else:
+                            # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
                                 if not day_data[day_data.index > ts].empty:
                                     entry_ts = ts
                                     break
+                            # If still no future candles, skip this trade
+                            if day_data[day_data.index > entry_ts].empty:
+                                continue
+                        
+                        # Calculate entry price based on detected side and selected candle
+                        selected_candle = session_data.loc[entry_ts]
+                        if fallback_side == 'long':
+                            entry_price = selected_candle['high']  # Use high for bullish breakouts
+                        else:
+                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        
+                        # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                        trade_params = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
+                        if trade_params is None:
+                            continue  # Skip if we can't calculate proper parameters
+                        
                         fb_params = {
-                            'entry_price': fb['entry_price'],
-                            'stop_loss': fb['stop_loss'],
-                            'take_profit': fb['take_profit'],
-                            'position_size': fb['position_size'],
+                            'entry_price': entry_price,
+                            'stop_loss': trade_params['stop_loss'],
+                            'take_profit': trade_params['take_profit'],
+                            'position_size': trade_params['position_size'],
                             'entry_time': entry_ts
                         }
                         exit_info = self.simulate_trade_exit(fb_params, fallback_side, day_data)
@@ -562,20 +698,41 @@ class SimpleTradingStrategy:
                 for fallback_side in order:
                     ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, fallback_side)
                     if ok and fb:
-                        candidate = fb_ts if fb_ts is not None else session_data.index[-1]
+                        # Use new fallback entry time selection
+                        best_entry_time = self.find_best_fallback_entry_time(session_data)
+                        candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
+                        
+                        # Check if future candles exist for the selected entry time
                         if not day_data[day_data.index > candidate].empty:
                             entry_ts = candidate
                         else:
+                            # Walk backwards in session_data to find a timestamp with a following candle in day_data
                             entry_ts = candidate
                             for ts in reversed(session_data.index.tolist()):
                                 if not day_data[day_data.index > ts].empty:
                                     entry_ts = ts
                                     break
+                            # If still no future candles, skip this trade
+                            if day_data[day_data.index > entry_ts].empty:
+                                continue
+                        
+                        # Calculate entry price based on detected side and selected candle
+                        selected_candle = session_data.loc[entry_ts]
+                        if fallback_side == 'long':
+                            entry_price = selected_candle['high']  # Use high for bullish breakouts
+                        else:
+                            entry_price = selected_candle['low']   # Use low for bearish breakouts
+                        
+                        # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                        trade_params = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
+                        if trade_params is None:
+                            continue  # Skip if we can't calculate proper parameters
+                        
                         fb_params = {
-                            'entry_price': fb['entry_price'],
-                            'stop_loss': fb['stop_loss'],
-                            'take_profit': fb['take_profit'],
-                            'position_size': fb['position_size'],
+                            'entry_price': entry_price,
+                            'stop_loss': trade_params['stop_loss'],
+                            'take_profit': trade_params['take_profit'],
+                            'position_size': trade_params['position_size'],
                             'entry_time': entry_ts
                         }
                         exit_info = self.simulate_trade_exit(fb_params, fallback_side, day_data)
@@ -610,25 +767,48 @@ class SimpleTradingStrategy:
         
         # If no exit_info or something failed but forcing one trade, try fallback to create a trade
         if (exit_info is None or not isinstance(exit_info, dict)) and self.force_one_trade:
-            for fallback_side in ['long', 'short']:
+            # Use new fallback direction detection
+            pref = _preferred_side(session_data)
+            order = [pref, 'short' if pref == 'long' else 'long']
+            for fallback_side in order:
                 ok, fb, fb_ts = self.check_ema15_pullback_conditions(session_data, fallback_side)
                 if ok and fb:
                     used_fallback = True
-                    # Build minimal trade_params
-                    candidate = fb_ts if fb_ts is not None else session_data.index[-1]
+                    # Use new fallback entry time selection
+                    best_entry_time = self.find_best_fallback_entry_time(session_data)
+                    candidate = best_entry_time if best_entry_time is not None else session_data.index[-1]
+                    
+                    # Check if future candles exist for the selected entry time
                     if not day_data[day_data.index > candidate].empty:
                         entry_ts = candidate
                     else:
+                        # Walk backwards in session_data to find a timestamp with a following candle in day_data
                         entry_ts = candidate
                         for ts in reversed(session_data.index.tolist()):
                             if not day_data[day_data.index > ts].empty:
                                 entry_ts = ts
                                 break
+                        # If still no future candles, skip this trade
+                        if day_data[day_data.index > entry_ts].empty:
+                            continue
+                    
+                    # Calculate entry price based on detected side and selected candle
+                    selected_candle = session_data.loc[entry_ts]
+                    if fallback_side == 'long':
+                        entry_price = selected_candle['high']  # Use high for bullish breakouts
+                    else:
+                        entry_price = selected_candle['low']   # Use low for bearish breakouts
+                    
+                    # Recalculate SL/TP with the new entry price and available data up to entry_ts
+                    trade_params_new = self.calculate_trade_params(fallback_side, entry_price, session_data, entry_ts)
+                    if trade_params_new is None:
+                        continue  # Skip if we can't calculate proper parameters
+                    
                     fb_params = {
-                        'entry_price': fb['entry_price'],
-                        'stop_loss': fb['stop_loss'],
-                        'take_profit': fb['take_profit'],
-                        'position_size': fb['position_size'],
+                        'entry_price': entry_price,
+                        'stop_loss': trade_params_new['stop_loss'],
+                        'take_profit': trade_params_new['take_profit'],
+                        'position_size': trade_params_new['position_size'],
                         'entry_time': entry_ts
                     }
                     exit_info = self.simulate_trade_exit(fb_params, fallback_side, day_data)
@@ -638,9 +818,9 @@ class SimpleTradingStrategy:
         
         # Deterministic final fallback for force_one_trade when all else fails
         if (exit_info is None or not isinstance(exit_info, dict)) and self.force_one_trade:
-            # Use the most recent price and create a minimal trade
-            current_price = session_data['close'].iloc[-1] if not session_data.empty else 50000.0
-            entry_time = session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC')
+            # Use new fallback entry time selection
+            best_entry_time = self.find_best_fallback_entry_time(session_data)
+            entry_time = best_entry_time if best_entry_time is not None else (session_data.index[-1] if not session_data.empty else pd.Timestamp(date, tz='UTC'))
             
             # Ensure we have future candles for exit simulation
             if day_data[day_data.index > entry_time].empty:
@@ -649,20 +829,35 @@ class SimpleTradingStrategy:
                     if not day_data[day_data.index > ts].empty:
                         entry_time = ts
                         break
+                # If still no future candles, skip this trade
+                if day_data[day_data.index > entry_time].empty:
+                    return trades
+            
+            # Use new fallback direction detection
+            side = self.detect_fallback_direction(session_data)
+            
+            # Calculate entry price based on detected side and selected candle
+            selected_candle = session_data.loc[entry_time]
+            if side == 'long':
+                entry_price = selected_candle['high']  # Use high for bullish breakouts
+            else:
+                entry_price = selected_candle['low']   # Use low for bearish breakouts
             
             # Use ORB range for stop/take profit if available, otherwise use minimal ATR
             orb_high, orb_low = self.get_orb_levels(session_data, self.orb_window)
             if orb_high is not None and orb_low is not None:
                 orb_range = orb_high - orb_low
-                min_atr = max(orb_range * 0.1, current_price * 0.001)  # At least 0.1% of price
+                min_atr = max(orb_range * 0.1, entry_price * 0.001)  # At least 0.1% of price
             else:
-                min_atr = current_price * 0.01  # 1% of price as fallback
+                min_atr = entry_price * 0.01  # 1% of price as fallback
             
-            # Create minimal trade parameters
-            side = 'long'  # Default to long
-            entry_price = current_price
-            stop_loss = entry_price - (min_atr * self.atr_mult)
-            take_profit = entry_price + (min_atr * self.tp_multiplier)
+            # Create minimal trade parameters based on detected side
+            if side == 'long':
+                stop_loss = entry_price - (min_atr * self.atr_mult)
+                take_profit = entry_price + (min_atr * self.tp_multiplier)
+            else:
+                stop_loss = entry_price + (min_atr * self.atr_mult)
+                take_profit = entry_price - (min_atr * self.tp_multiplier)
             position_size = self.risk_usdt / max(abs(entry_price - stop_loss), 1e-9)
             
             fb_params = {
