@@ -85,9 +85,16 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
         fetch_historical_data = None
     
     # Helper: evaluate a single day ORB based on provided config
-    def _evaluate_orb_single_day(day_df: pd.DataFrame, session_date: datetime.date, cfg: Dict[str, Any]) -> Dict[str, Any]:
+    def _evaluate_orb_single_day(day_df: pd.DataFrame, session_date: datetime.date, cfg: Dict[str, Any], now: datetime = None) -> Dict[str, Any]:
         if day_df is None or day_df.empty or len(day_df) < 50:
             return {"status": "no_data"}
+        
+        # CRITICAL: Filter out candles after 'now' to prevent lookahead bias
+        if now is not None:
+            day_df = day_df[day_df.index <= now]
+            if day_df.empty:
+                return {"status": "no_data"}
+        
         # Determine ORB/entry windows
         orb_window = cfg.get("orb_window", (11, 12))
         entry_window = cfg.get("entry_window", (11, 13))
@@ -174,6 +181,14 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                     df = pd.concat([df, extra]).sort_index().drop_duplicates()
                 except Exception:
                     pass
+            
+            # CRITICAL: Filter out candles after 'now' to prevent lookahead bias
+            # Allow small tolerance (5 minutes) for data timing issues
+            tolerance = timedelta(minutes=5)
+            cutoff_time = now + tolerance
+            if df is not None and not df.empty:
+                df = df[df.index <= cutoff_time]
+                
         except Exception:
             df = None
 
@@ -198,15 +213,19 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
             "from_cache": True
         }
 
-    rec = _evaluate_orb_single_day(df, now.date(), config)
+    rec = _evaluate_orb_single_day(df, now.date(), config, now)
     
     # If no signal and force_one_trade is enabled, try fallback
     if rec.get("status") != "signal" and config.get("force_one_trade", False):
         # Simple fallback logic similar to SimpleTradingStrategy
         try:
-            if len(df) >= 15:
-                ema15 = df['close'].ewm(span=15, adjust=False).mean().iloc[-1]
-                current_price = df['close'].iloc[-1]
+            # CRITICAL: Use only candles before 'now' for fallback calculation
+            valid_candles = df[df.index < now] if now else df
+            
+            if len(valid_candles) >= 15:
+                ema15 = valid_candles['close'].ewm(span=15, adjust=False).mean().iloc[-1]
+                current_price = valid_candles['close'].iloc[-1]
+                entry_time = valid_candles.index[-1]
                 
                 # Try both sides
                 for side in ['long', 'short']:
@@ -216,10 +235,10 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                         pullback_ok = current_price >= ema15 * 0.999
                     
                     if pullback_ok:
-                        # Calculate simple SL/TP using ATR proxy
-                        if len(df) >= 14:
-                            tr_high = df['high'].rolling(14).max().iloc[-1]
-                            tr_low = df['low'].rolling(14).min().iloc[-1]
+                        # Calculate simple SL/TP using ATR proxy from valid candles
+                        if len(valid_candles) >= 14:
+                            tr_high = valid_candles['high'].rolling(14).max().iloc[-1]
+                            tr_low = valid_candles['low'].rolling(14).min().iloc[-1]
                             atr_proxy = (tr_high - tr_low) / 14 if pd.notna(tr_high) and pd.notna(tr_low) else None
                         else:
                             atr_proxy = None
@@ -242,7 +261,7 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                                 "date": now.strftime("%Y-%m-%d"),
                                 "macro_bias": "neutral",
                                 "side": side,
-                                "entry_time": df.index[-1].isoformat(),
+                                "entry_time": entry_time.isoformat(),
                                 "entry_price": float(current_price),
                                 "stop_loss": float(stop_loss),
                                 "take_profit": float(take_profit),
@@ -253,8 +272,29 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
                                 "used_fallback": True
                             }
                             break
+            else:
+                # Not enough valid candles for EMA15 calculation
+                rec = {
+                    "status": "no_data",
+                    "symbol": symbol,
+                    "date": now.strftime("%Y-%m-%d"),
+                    "macro_bias": "neutral",
+                    "orb_high": None,
+                    "orb_low": None,
+                    "notes": "Insufficient data for EMA15 fallback",
+                    "from_cache": False
+                }
         except Exception:
-            pass
+            rec = {
+                "status": "no_data",
+                "symbol": symbol,
+                "date": now.strftime("%Y-%m-%d"),
+                "macro_bias": "neutral",
+                "orb_high": None,
+                "orb_low": None,
+                "notes": "Error in EMA15 fallback calculation",
+                "from_cache": False
+            }
     
     # Save latest recommendation if it is a signal or meaningful state
     try:

@@ -310,11 +310,9 @@ class SimpleTradingStrategy:
         net_pnl = gross_pnl - total_costs
         
         # Calculate R-multiple based on net PnL
-        risk = abs(entry_price - stop_loss)
-        if risk > 0:
-            r_multiple = abs(exit_price - entry_price) / risk
-            if (side == 'long' and exit_price < entry_price) or (side == 'short' and exit_price > entry_price):
-                r_multiple = -r_multiple
+        risk_in_usdt = abs(entry_price - stop_loss) * position_size
+        if risk_in_usdt > 0:
+            r_multiple = net_pnl / risk_in_usdt
         else:
             r_multiple = 0
         

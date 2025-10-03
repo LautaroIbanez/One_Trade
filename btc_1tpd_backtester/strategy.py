@@ -37,6 +37,10 @@ class TradingStrategy:
         self.entry_window = config.get('entry_window', (11, 18))  # Extended to 18:00 UTC
         self.full_day_trading = config.get('full_day_trading', False)
         
+        # Capital and leverage for position sizing
+        self.initial_capital = config.get("initial_capital", 1000.0)
+        self.leverage = config.get("leverage", 1.0)
+        
         # Session times (UTC) - use configured windows or defaults
         self.orb_start = self.orb_window[0]
         self.orb_end = self.orb_window[1]
@@ -113,15 +117,25 @@ class TradingStrategy:
                 not self.is_daily_loss_limit_reached())
         
     def calculate_position_size(self, entry_price, stop_loss):
-        """Calculate position size based on risk management."""
+        """Calculate position size based on risk management and capital constraints."""
         risk_amount = self.risk_usdt
         price_diff = abs(entry_price - stop_loss)
         
         if price_diff == 0:
             return 0
             
+        # Calculate position size based on risk
         position_size = risk_amount / price_diff
-        return min(position_size, risk_amount / (entry_price * 0.01))  # Max 1% of equity per trade
+        
+        # Apply capital and leverage constraints
+        max_position_size = (self.initial_capital * self.leverage) / entry_price
+        position_size = min(position_size, max_position_size)
+        
+        # Additional safety: max 1% of equity per trade
+        max_equity_risk = risk_amount / (entry_price * 0.01)
+        position_size = min(position_size, max_equity_risk)
+        
+        return position_size
     
     def get_stop_loss_price(self, entry_price, side, atr_value, is_orb=True):
         """Calculate stop loss price."""
@@ -191,13 +205,26 @@ class TradingStrategy:
             if volume_ok and adx_ok:
                 stop_loss = self.get_stop_loss_price(entry_price, side, atr_value, True)
                 take_profit = self.get_take_profit_price(entry_price, stop_loss, side)
+                
+                # Calculate position size with capital and leverage constraints
+                position_size = self.calculate_position_size(entry_price, stop_loss)
+                
+                # Skip trade if position size is zero (insufficient capital/leverage)
+                if position_size <= 0:
+                    return False, orb_high, orb_low, None
+                
+                # Recalculate effective risk based on capped position size
+                effective_risk_usdt = abs(entry_price - stop_loss) * position_size
+                
                 return True, orb_high, orb_low, {
                     'entry_price': entry_price,
                     'stop_loss': stop_loss,
                     'take_profit': take_profit,
                     'atr_value': atr_value,
                     'adx_value': adx_value,
-                    'vwap_value': vwap_value
+                    'vwap_value': vwap_value,
+                    'position_size': position_size,
+                    'effective_risk_usdt': effective_risk_usdt
                 }
             
             return False, orb_high, orb_low, None
@@ -239,6 +266,16 @@ class TradingStrategy:
             stop_loss = self.get_stop_loss_price(entry_price, side, atr_value, False)
             take_profit = self.get_take_profit_price(entry_price, stop_loss, side)
             
+            # Calculate position size with capital and leverage constraints
+            position_size = self.calculate_position_size(entry_price, stop_loss)
+            
+            # Skip trade if position size is zero (insufficient capital/leverage)
+            if position_size <= 0:
+                return False, None
+            
+            # Recalculate effective risk based on capped position size
+            effective_risk_usdt = abs(entry_price - stop_loss) * position_size
+            
             # Check R/R ratio
             risk = abs(entry_price - stop_loss)
             reward = abs(take_profit - entry_price)
@@ -251,7 +288,9 @@ class TradingStrategy:
                     'take_profit': take_profit,
                     'atr_value': atr_value,
                     'rr_ratio': rr_ratio,
-                    'ema15': ema15
+                    'ema15': ema15,
+                    'position_size': position_size,
+                    'effective_risk_usdt': effective_risk_usdt
                 }
             
             return False, None
@@ -290,7 +329,9 @@ class TradingStrategy:
                             'atr': trade_params['atr_value'],
                             'adx': trade_params['adx_value'],
                             'vwap': trade_params['vwap_value']
-                        }
+                        },
+                        'position_size': trade_params['position_size'],
+                        'effective_risk_usdt': trade_params['effective_risk_usdt']
                     }
             
             # Try fallback strategies if ORB didn't work and we're forcing one trade
@@ -306,7 +347,9 @@ class TradingStrategy:
                                 'stop_loss': trade_params['stop_loss'],
                                 'take_profit': trade_params['take_profit'],
                                 'rr_ratio': trade_params['rr_ratio'],
-                                'ema15': trade_params['ema15']
+                                'ema15': trade_params['ema15'],
+                                'position_size': trade_params['position_size'],
+                                'effective_risk_usdt': trade_params['effective_risk_usdt']
                             }
             
             return None
