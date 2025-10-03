@@ -48,63 +48,87 @@ BASE_CONFIG = {
     "slippage_rate": 0.0005,   # 0.05% default
     "initial_capital": 1000.0, # Initial capital in USDT
     "leverage": 1.0,           # Leverage multiplier
-    "full_day_trading": True,  # Always use 24h trading mode
+    "full_day_trading": False,  # Default to session trading
     "force_one_trade": True,   # Always force one trade
     "fallback_mode": "EMA15_pullback",
+    # Session trading parameters
+    "session_trading": True,   # Enable session-based trading
+    "entry_window": (11, 14),  # Entry window in local time (AR)
+    "exit_window": (20, 22),   # Exit window in local time (AR)
+    "session_timezone": "America/Argentina/Buenos_Aires",
     # When rebuilding, start date or lookback control
     "backtest_start_date": None,  # ISO date string e.g., "2024-01-01"
     "lookback_days": 30,
 }
 MODE_CONFIG = {
     "conservative": {
-        "risk_usdt": 15.0,  # Integrated from full_day_overrides
+        "risk_usdt": 15.0,
         "atr_mult_orb": 1.5, 
         "tp_multiplier": 1.5, 
-        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
-        "entry_window": (1, 24),  # Can enter throughout the day
-        "commission_rate": 0.001,  # Integrated from full_day_overrides
-        "slippage_rate": 0.0005,  # Integrated from full_day_overrides
+        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
+        "entry_window": (11, 14),  # Entry window in AR time
+        "exit_window": (20, 22),   # Exit window in AR time
+        "commission_rate": 0.001,
+        "slippage_rate": 0.0005,
         "initial_capital": 1000.0,
         "leverage": 1.0,
         "force_one_trade": True,
-        "full_day_trading": True
+        "session_trading": True,
+        "session_timezone": "America/Argentina/Buenos_Aires"
     },
     "moderate": {
-        "risk_usdt": 25.0,  # Integrated from full_day_overrides
+        "risk_usdt": 25.0,
         "atr_mult_orb": 1.2, 
         "tp_multiplier": 2.0, 
-        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
-        "entry_window": (1, 24),  # Can enter throughout the day
-        "commission_rate": 0.0012,  # Integrated from full_day_overrides
-        "slippage_rate": 0.0008,  # Integrated from full_day_overrides
+        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
+        "entry_window": (11, 14),  # Entry window in AR time
+        "exit_window": (20, 22),   # Exit window in AR time
+        "commission_rate": 0.0012,
+        "slippage_rate": 0.0008,
         "initial_capital": 1000.0,
         "leverage": 1.0,
         "force_one_trade": True,
         "fallback_mode": "EMA15_pullback",
-        "full_day_trading": True
+        "session_trading": True,
+        "session_timezone": "America/Argentina/Buenos_Aires"
     },
     "aggressive": {
-        "risk_usdt": 40.0,  # Integrated from full_day_overrides
+        "risk_usdt": 40.0,
         "atr_mult_orb": 1.0, 
         "tp_multiplier": 2.5, 
-        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
-        "entry_window": (1, 24),  # Can enter throughout the day
-        "commission_rate": 0.0015,  # Integrated from full_day_overrides
-        "slippage_rate": 0.001,  # Integrated from full_day_overrides
+        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
+        "entry_window": (11, 14),  # Entry window in AR time
+        "exit_window": (20, 22),   # Exit window in AR time
+        "commission_rate": 0.0015,
+        "slippage_rate": 0.001,
         "initial_capital": 1000.0,
         "leverage": 1.0,
         "force_one_trade": True,
-        "full_day_trading": True
+        "session_trading": True,
+        "session_timezone": "America/Argentina/Buenos_Aires"
     },
 }
 
 
-def get_effective_config(symbol: str, mode: str) -> dict:
-    """Return merged BASE_CONFIG with selected mode overrides. Always uses 24h trading mode."""
+def get_effective_config(symbol: str, mode: str, session_type: str = "session") -> dict:
+    """Return merged BASE_CONFIG with selected mode overrides. Supports both session and 24h trading modes."""
     mode_cfg = MODE_CONFIG.get((mode or "moderate").lower(), {})
     
     # Start with base config, then apply mode config
     config = {**BASE_CONFIG, **mode_cfg}
+    
+    # Override based on session type
+    if session_type == "24h":
+        config["full_day_trading"] = True
+        config["session_trading"] = False
+        # Override windows for 24h mode
+        config["orb_window"] = (0, 1)  # ORB at midnight UTC
+        config["entry_window"] = (1, 24)  # Can enter throughout the day
+        config["exit_window"] = None  # No forced exit window
+    else:  # session mode
+        config["full_day_trading"] = False
+        config["session_trading"] = True
+        # Use mode-specific session windows
     
     return config
 
@@ -141,14 +165,15 @@ DEFAULT_SYMBOLS = [
 ]
 
 
-def refresh_trades(symbol: str, mode: str) -> str:
+def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str:
     """
     Refresh trades data by running backtest from last available date to today for a given symbol and mode.
-    Always uses 24-hour trading mode.
+    Supports both session and 24-hour trading modes.
     
     Args:
         symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
         mode: Trading mode ('conservative', 'moderate', 'aggressive')
+        session_type: Trading session type ('session' or '24h')
     
     Returns:
         Status message indicating success or failure
@@ -156,7 +181,7 @@ def refresh_trades(symbol: str, mode: str) -> str:
     if run_backtest is None:
         return "Backtest module not available"
     
-    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, 24h=True")
+    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, session_type={session_type}")
     try:
         # Load existing trades for the current mode
         existing_trades = load_trades(symbol, mode)
@@ -187,13 +212,13 @@ def refresh_trades(symbol: str, mode: str) -> str:
         )
         
         # Determine default since using config lookback/backtest_start_date
-        cfg_for_since = get_effective_config(symbol, mode)
+        cfg_for_since = get_effective_config(symbol, mode, session_type)
         start_override = cfg_for_since.get("backtest_start_date")
         lb_days = cfg_for_since.get("lookback_days", 30)
         default_since = (start_override or (datetime.now(timezone.utc).date() - timedelta(days=int(lb_days))).isoformat())
         
         if mode_change_detected:
-            print(f"🔄 Mode change detected: switching to 24h mode")
+            print(f"🔄 Mode change detected: switching to {session_type} mode")
             # Clear existing trades and force rebuild
             existing_trades = pd.DataFrame()
             since = default_since
@@ -221,8 +246,8 @@ def refresh_trades(symbol: str, mode: str) -> str:
             print(f"⚠️ since/until parsing failed (continuing): {e}")
         
         # Merge base and mode config
-        config = get_effective_config(symbol, mode)
-        print(f"📊 Effective config for {symbol} {mode} (24h: True): {config}")
+        config = get_effective_config(symbol, mode, session_type)
+        print(f"📊 Effective config for {symbol} {mode} (session_type: {session_type}): {config}")
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
@@ -249,12 +274,16 @@ def refresh_trades(symbol: str, mode: str) -> str:
             "day_key","entry_time","side","entry_price","sl","tp","exit_time","exit_price","exit_reason","pnl_usdt","r_multiple","used_fallback","mode"
         ]
         
-        # Always force rebuild for 24h mode
-        rebuild_completely = True
-        print("ℹ️  24h mode: forcing complete rebuild using default since range.")
+        # Force rebuild for mode changes or when switching session types
+        rebuild_completely = mode_change_detected or existing_trades.empty
+        if session_type == "24h":
+            rebuild_completely = True
+            print("ℹ️  24h mode: forcing complete rebuild using default since range.")
+        else:
+            print(f"ℹ️  {session_type} mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
 
         if rebuild_completely:
-            print(f"🔄 Rebuilding completely for {symbol} {mode} (24h: True)")
+            print(f"🔄 Rebuilding completely for {symbol} {mode} (session_type: {session_type})")
             # Replace CSV completely with new results, no concatenation
             combined = results.copy() if results is not None and not results.empty else pd.DataFrame()
 
@@ -342,7 +371,8 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 "last_trade_date": last_trade_date,  # Last actual trade date
                 "symbol": symbol,
                 "mode": mode,
-                "full_day_trading": True,  # Always True for 24h mode
+                "full_day_trading": config.get("full_day_trading", False),
+                "session_trading": config.get("session_trading", True),
                 "backtest_start_date": (start_override or default_since),
             }
             sidecar_out.write_text(_json.dumps(meta_payload, indent=2, ensure_ascii=False))
@@ -662,6 +692,7 @@ def create_app():
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
+                dbc.Col(dbc.RadioItems(id="session-type", options=[{"label": "Sesión AR", "value": "session"}, {"label": "24h", "value": "24h"}], value="session", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
                 dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
@@ -756,9 +787,10 @@ def create_app():
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
+        Input("session-type", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(symbol, n_clicks, mode):
+    def update_dashboard(symbol, n_clicks, mode, session_type):
         symbol = (symbol or "BTC/USDT:USDT").strip()
         
         # Fetch latest price
@@ -772,7 +804,7 @@ def create_app():
         # Refresh trades data first
         refresh_msg = ""
         try:
-            refresh_msg = refresh_trades(symbol, mode or "moderate")
+            refresh_msg = refresh_trades(symbol, mode or "moderate", session_type or "session")
         except Exception as e:
             refresh_msg = f"Error refreshing trades: {str(e)}"
         
@@ -813,7 +845,7 @@ def create_app():
             alert_msg = f"Operación activa: {active_trade.side.upper()} a {active_trade.entry_price} (SL {active_trade.stop_loss}, TP {active_trade.take_profit})."
 
         # Get effective configuration
-        config = get_effective_config(symbol, mode or "moderate")
+        config = get_effective_config(symbol, mode or "moderate", session_type or "session")
         m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
@@ -899,7 +931,7 @@ def create_app():
         reco_children = html.Div("Se requiere módulo de señales.")
         try:
             from btc_1tpd_backtester.live_monitor import detect_or_update_active_trade
-            merged_cfg = get_effective_config(symbol, mode)
+            merged_cfg = get_effective_config(symbol, mode, session_type or "session")
             active_or_rec = detect_or_update_active_trade(symbol, mode, merged_cfg)
             # Build card from active_or_rec when we have params
             if active_or_rec is not None:
