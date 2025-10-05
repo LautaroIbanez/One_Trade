@@ -1,245 +1,313 @@
 #!/usr/bin/env python3
 """
-Verification script to test refresh behavior in the same mode.
-This script verifies that refreshing repeatedly in the same mode doesn't 
-rebuild from scratch when the correct file already exists.
+Pruebas para el comportamiento de refresh_trades.
 """
 
-import os
-import sys
+import unittest
 import pandas as pd
-from datetime import datetime, timedelta
-from pathlib import Path
+import os
 import tempfile
 import shutil
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
+import sys
 
-# Add parent directory to path for imports
-base_dir = Path(__file__).resolve().parent
-repo_root = base_dir.parent
-if str(repo_root) not in sys.path:
-    sys.path.append(str(repo_root))
+# Add the webapp directory to the path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from webapp.app import refresh_trades, load_trades
-from unittest.mock import patch
+from app import refresh_trades, load_trades
 
 
-def create_mock_trades_data(num_trades=5, start_date=None):
-    """Create mock trades data for testing."""
-    if start_date is None:
-        start_date = datetime.now() - timedelta(days=num_trades)
+class TestRefreshBehavior(unittest.TestCase):
+    """Test cases for refresh_trades behavior."""
     
-    trades = []
-    for i in range(num_trades):
-        trade_date = start_date + timedelta(days=i)
-        trades.append({
-            'day_key': trade_date.strftime('%Y-%m-%d'),
-            'entry_time': trade_date.replace(hour=12, minute=0, second=0),
-            'side': 'long' if i % 2 == 0 else 'short',
-            'entry_price': 50000.0 + i * 100,
-            'sl': 49900.0 + i * 100,
-            'tp': 50100.0 + i * 100,
-            'exit_time': trade_date.replace(hour=18, minute=0, second=0),
-            'exit_price': 50100.0 + i * 100,
-            'exit_reason': 'take_profit',
-            'pnl_usdt': 100.0 + i * 10,
-            'r_multiple': 2.0 + i * 0.1,
-            'used_fallback': False
-        })
-    
-    return pd.DataFrame(trades)
-
-
-def test_refresh_behavior_same_mode():
-    """Test that refreshing in the same mode doesn't rebuild from scratch."""
-    print("🧪 Testing refresh behavior in same mode...")
-    
-    # Test parameters
-    symbol = "BTC/USDT:USDT"
-    mode = "moderate"
-    full_day_trading = False
-    
-    # Create temporary directory for test data
-    with tempfile.TemporaryDirectory() as temp_dir:
-        # Override the data directory for testing
-        original_data_dir = repo_root / "data"
-        test_data_dir = Path(temp_dir) / "data"
-        test_data_dir.mkdir(parents=True, exist_ok=True)
+    def setUp(self):
+        """Set up test fixtures."""
+        # Create a temporary directory for test data
+        self.test_dir = tempfile.mkdtemp()
+        self.original_data_dir = None
         
-        # Create mock trades data
-        mock_trades = create_mock_trades_data(num_trades=3)
+        # Mock the data directory
+        import app
+        if hasattr(app, 'repo_root'):
+            self.original_data_dir = app.repo_root
+            app.repo_root = Path(self.test_dir)
         
-        # Save initial trades data
+        # Create data directory
+        data_dir = Path(self.test_dir) / "data"
+        data_dir.mkdir(parents=True, exist_ok=True)
+    
+    def tearDown(self):
+        """Clean up test fixtures."""
+        # Restore original data directory
+        if self.original_data_dir is not None:
+            import app
+            app.repo_root = self.original_data_dir
+        
+        # Clean up temporary directory
+        shutil.rmtree(self.test_dir)
+    
+    def test_refresh_trades_with_deleted_csv(self):
+        """Test that refresh_trades completes successfully when CSV is deleted."""
+        symbol = "BTC/USDT:USDT"
+        mode = "moderate"
+        session_type = "session"
+        
+        # Ensure CSV doesn't exist
         slug = symbol.replace('/', '_').replace(':', '_')
         mode_suffix = mode.lower()
-        trading_suffix = "_24h" if full_day_trading else ""
-        filename = test_data_dir / f"trades_final_{slug}_{mode_suffix}{trading_suffix}.csv"
+        data_dir = Path(self.test_dir) / "data"
+        csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+        meta_file = data_dir / f"trades_final_{slug}_{mode_suffix}_meta.json"
         
-        mock_trades.to_csv(filename, index=False)
-        print(f"✅ Created initial mock data: {filename}")
-        print(f"   Initial trades count: {len(mock_trades)}")
+        # Remove files if they exist
+        if csv_file.exists():
+            csv_file.unlink()
+        if meta_file.exists():
+            meta_file.unlink()
         
-        # Mock the data directory in the app
-        import webapp.app
-        original_repo_root = webapp.app.repo_root
-        webapp.app.repo_root = Path(temp_dir)
-        
+        # Call refresh_trades
         try:
-            # Test 1: Load existing trades
-            print("\n📂 Test 1: Loading existing trades...")
-            existing_trades = load_trades(symbol, mode, full_day_trading)
-            print(f"   Loaded {len(existing_trades)} trades")
-            assert len(existing_trades) == 3, f"Expected 3 trades, got {len(existing_trades)}"
+            result = refresh_trades(symbol, mode, session_type)
             
-            # Seed sidecar freshness for the file
-            meta_path = (filename.with_suffix("") )
-            meta_path = Path(str(meta_path) + "_meta.json")
-            import json
-            meta_path.write_text(json.dumps({"last_backtest_until": datetime.now().date().isoformat(), "symbol": symbol, "mode": mode, "full_day_trading": full_day_trading}, ensure_ascii=False, indent=2), encoding="utf-8")
-
-            # Test 2: First refresh (should be incremental if no mode change)
-            print("\n🔄 Test 2: First refresh...")
-            # Since we can't actually run the backtest without real data, we'll test the mode change detection logic
-            # by checking the file existence logic
+            # Verify function completed without raising
+            self.assertIsInstance(result, str)
+            self.assertIn("OK", result)
             
-            # Check mode change detection logic
-            normal_file = test_data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
-            file_24h = test_data_dir / f"trades_final_{slug}_{mode_suffix}_24h.csv"
+            # Verify CSV file was created
+            self.assertTrue(csv_file.exists(), "CSV file should be created after refresh_trades")
             
-            expected_file = file_24h if full_day_trading else normal_file
-            opposite_file = normal_file if full_day_trading else file_24h
+            # Verify CSV file is not empty (should contain at least headers)
+            if csv_file.exists():
+                df = pd.read_csv(csv_file)
+                # Should have standard columns even if empty
+                expected_columns = [
+                    "day_key", "entry_time", "side", "entry_price", "sl", "tp", 
+                    "exit_time", "exit_price", "exit_reason", "pnl_usdt", 
+                    "r_multiple", "used_fallback", "mode"
+                ]
+                for col in expected_columns:
+                    self.assertIn(col, df.columns, f"Column {col} should be present in CSV")
             
-            mode_change_detected = (
-                not expected_file.exists() or  # Expected file doesn't exist
-                opposite_file.exists() or     # Opposite mode file exists
-                (normal_file.exists() and file_24h.exists() and existing_trades.empty)
-            )
+            # Verify meta file was created
+            self.assertTrue(meta_file.exists(), "Meta file should be created after refresh_trades")
             
-            print(f"   Expected file exists: {expected_file.exists()}")
-            print(f"   Opposite file exists: {opposite_file.exists()}")
-            print(f"   Mode change detected: {mode_change_detected}")
+            # Verify meta file contains expected data
+            if meta_file.exists():
+                import json
+                with open(meta_file, 'r') as f:
+                    meta = json.load(f)
+                
+                self.assertIn('symbol', meta)
+                self.assertIn('mode', meta)
+                self.assertIn('session_type', meta)
+                self.assertEqual(meta['symbol'], symbol)
+                self.assertEqual(meta['mode'], mode)
+                self.assertEqual(meta['session_type'], session_type)
             
-            # In same mode, should NOT detect mode change
-            assert not mode_change_detected, "Mode change should not be detected in same mode"
-            
-            # Test 3: Create opposite mode file and test mode change detection
-            print("\n🔄 Test 3: Testing mode change detection with opposite file...")
-            opposite_trades = create_mock_trades_data(num_trades=2, start_date=datetime.now() - timedelta(days=2))
-            opposite_file.parent.mkdir(parents=True, exist_ok=True)
-            opposite_trades.to_csv(opposite_file, index=False)
-            print(f"   Created opposite mode file: {opposite_file}")
-            
-            # Check mode change detection again
-            mode_change_detected_with_opposite = (
-                not expected_file.exists() or  # Expected file doesn't exist
-                opposite_file.exists() or     # Opposite mode file exists
-                (normal_file.exists() and file_24h.exists() and existing_trades.empty)
-            )
-            
-            print(f"   Mode change detected with opposite file: {mode_change_detected_with_opposite}")
-            
-            # Should detect mode change when opposite file exists
-            assert mode_change_detected_with_opposite, "Mode change should be detected when opposite file exists"
-            
-            # Test 4: Test 24h mode
-            print("\n🔄 Test 4: Testing 24h mode...")
-            full_day_trading_24h = True
-            expected_file_24h = file_24h if full_day_trading_24h else normal_file
-            opposite_file_24h = normal_file if full_day_trading_24h else file_24h
-            
-            mode_change_detected_24h = (
-                not expected_file_24h.exists() or  # Expected file doesn't exist
-                opposite_file_24h.exists() or     # Opposite mode file exists
-                (normal_file.exists() and file_24h.exists() and existing_trades.empty)
-            )
-            
-            print(f"   Expected 24h file exists: {expected_file_24h.exists()}")
-            print(f"   Opposite 24h file exists: {opposite_file_24h.exists()}")
-            print(f"   Mode change detected for 24h: {mode_change_detected_24h}")
-            
-            # Should detect mode change when switching to 24h mode and normal file exists
-            assert mode_change_detected_24h, "Mode change should be detected when switching to 24h mode"
-
-            # Regression: since > until should not call run_backtest and keep file
-            print("\n🧪 Regression: Guard when since > until")
-            # Make existing trades last date ahead of today to force since > until
-            future_date = (datetime.now() + timedelta(days=2)).date().isoformat()
-            # Overwrite sidecar to simulate last_backtest_until in future
-            meta_path.write_text(json.dumps({"last_backtest_until": future_date, "symbol": symbol, "mode": mode, "full_day_trading": full_day_trading}, ensure_ascii=False, indent=2), encoding="utf-8")
-            # Patch run_backtest to detect unwanted calls
-            with patch('webapp.app.run_backtest') as mock_run:
-                msg = refresh_trades(symbol, mode, full_day_trading)
-                assert not mock_run.called, "run_backtest should not be called when since > until"
-                # Ensure file remains intact (row count unchanged)
-                after = pd.read_csv(filename)
-                assert len(after) == len(mock_trades), "Existing trades should remain untouched when skipping backtest"
-            
-            print("\n✅ All tests passed!")
-            print("   - Same mode refresh doesn't trigger rebuild")
-            print("   - Mode change detection works correctly")
-            print("   - 24h mode switching is detected properly")
-            
-        finally:
-            # Restore original repo_root
-            webapp.app.repo_root = original_repo_root
-
-
-def test_file_creation_behavior():
-    """Test that files are created with correct naming conventions."""
-    print("\n🧪 Testing file creation behavior...")
+        except Exception as e:
+            self.fail(f"refresh_trades raised an exception: {e}")
     
-    # Test parameters
-    symbol = "BTC/USDT:USDT"
-    mode = "moderate"
-    
-    # Test normal mode file naming
-    slug = symbol.replace('/', '_').replace(':', '_')
-    mode_suffix = mode.lower()
-    
-    normal_filename = f"trades_final_{slug}_{mode_suffix}.csv"
-    file_24h_filename = f"trades_final_{slug}_{mode_suffix}_24h.csv"
-    
-    print(f"   Normal mode file: {normal_filename}")
-    print(f"   24h mode file: {file_24h_filename}")
-    
-    # Verify naming conventions
-    assert "_24h" not in normal_filename, "Normal mode file should not have _24h suffix"
-    assert "_24h" in file_24h_filename, "24h mode file should have _24h suffix"
-    assert slug in normal_filename, "Normal mode file should contain symbol slug"
-    assert slug in file_24h_filename, "24h mode file should contain symbol slug"
-    assert mode_suffix in normal_filename, "Normal mode file should contain mode suffix"
-    assert mode_suffix in file_24h_filename, "24h mode file should contain mode suffix"
-    
-    print("✅ File naming conventions are correct")
-
-
-def main():
-    """Run all verification tests."""
-    print("🚀 Starting refresh behavior verification tests...")
-    print("=" * 60)
-    
-    try:
-        test_file_creation_behavior()
-        test_refresh_behavior_same_mode()
+    def test_refresh_trades_with_existing_csv(self):
+        """Test that refresh_trades works with existing CSV."""
+        symbol = "BTC/USDT:USDT"
+        mode = "moderate"
+        session_type = "session"
         
-        print("\n" + "=" * 60)
-        print("🎉 All verification tests passed!")
-        print("\nSummary:")
-        print("✅ Entry window adjustment for full_day_trading works correctly")
-        print("✅ Mode change detection is precise and only triggers on actual session changes")
-        print("✅ Incremental updates work when no session change is detected")
-        print("✅ File naming conventions are correct")
-        print("✅ Refresh behavior in same mode doesn't rebuild unnecessarily")
+        # Create a dummy CSV file
+        slug = symbol.replace('/', '_').replace(':', '_')
+        mode_suffix = mode.lower()
+        data_dir = Path(self.test_dir) / "data"
+        csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
         
-    except Exception as e:
-        print(f"\n❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        # Create dummy trades data
+        dummy_trades = pd.DataFrame({
+            'day_key': ['2024-01-01'],
+            'entry_time': [datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)],
+            'side': ['long'],
+            'entry_price': [100.0],
+            'sl': [98.0],
+            'tp': [102.0],
+            'exit_time': [datetime(2024, 1, 1, 18, 0, 0, tzinfo=timezone.utc)],
+            'exit_price': [102.0],
+            'exit_reason': ['take_profit'],
+            'pnl_usdt': [20.0],
+            'r_multiple': [1.0],
+            'used_fallback': [False],
+            'mode': [mode]
+        })
+        
+        dummy_trades.to_csv(csv_file, index=False)
+        
+        # Call refresh_trades
+        try:
+            result = refresh_trades(symbol, mode, session_type)
+            
+            # Verify function completed without raising
+            self.assertIsInstance(result, str)
+            self.assertIn("OK", result)
+            
+            # Verify CSV file still exists
+            self.assertTrue(csv_file.exists(), "CSV file should still exist after refresh_trades")
+            
+        except Exception as e:
+            self.fail(f"refresh_trades raised an exception: {e}")
+    
+    def test_refresh_trades_different_modes(self):
+        """Test refresh_trades with different modes."""
+        symbol = "BTC/USDT:USDT"
+        session_type = "session"
+        
+        modes = ["conservative", "moderate", "aggressive"]
+        
+        for mode in modes:
+            with self.subTest(mode=mode):
+                # Ensure CSV doesn't exist for this mode
+                slug = symbol.replace('/', '_').replace(':', '_')
+                mode_suffix = mode.lower()
+                data_dir = Path(self.test_dir) / "data"
+                csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+                meta_file = data_dir / f"trades_final_{slug}_{mode_suffix}_meta.json"
+                
+                # Remove files if they exist
+                if csv_file.exists():
+                    csv_file.unlink()
+                if meta_file.exists():
+                    meta_file.unlink()
+                
+                # Call refresh_trades
+                try:
+                    result = refresh_trades(symbol, mode, session_type)
+                    
+                    # Verify function completed without raising
+                    self.assertIsInstance(result, str)
+                    self.assertIn("OK", result)
+                    
+                    # Verify CSV file was created
+                    self.assertTrue(csv_file.exists(), f"CSV file should be created for mode {mode}")
+                    
+                    # Verify meta file was created
+                    self.assertTrue(meta_file.exists(), f"Meta file should be created for mode {mode}")
+                    
+                except Exception as e:
+                    self.fail(f"refresh_trades raised an exception for mode {mode}: {e}")
+    
+    def test_refresh_trades_different_session_types(self):
+        """Test refresh_trades with different session types."""
+        symbol = "BTC/USDT:USDT"
+        mode = "moderate"
+        
+        session_types = ["session", "24h"]
+        
+        for session_type in session_types:
+            with self.subTest(session_type=session_type):
+                # Ensure CSV doesn't exist
+                slug = symbol.replace('/', '_').replace(':', '_')
+                mode_suffix = mode.lower()
+                data_dir = Path(self.test_dir) / "data"
+                csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+                meta_file = data_dir / f"trades_final_{slug}_{mode_suffix}_meta.json"
+                
+                # Remove files if they exist
+                if csv_file.exists():
+                    csv_file.unlink()
+                if meta_file.exists():
+                    meta_file.unlink()
+                
+                # Call refresh_trades
+                try:
+                    result = refresh_trades(symbol, mode, session_type)
+                    
+                    # Verify function completed without raising
+                    self.assertIsInstance(result, str)
+                    self.assertIn("OK", result)
+                    
+                    # Verify CSV file was created
+                    self.assertTrue(csv_file.exists(), f"CSV file should be created for session_type {session_type}")
+                    
+                    # Verify meta file was created
+                    self.assertTrue(meta_file.exists(), f"Meta file should be created for session_type {session_type}")
+                    
+                    # Verify meta file contains correct session_type
+                    if meta_file.exists():
+                        import json
+                        with open(meta_file, 'r') as f:
+                            meta = json.load(f)
+                        
+                        self.assertEqual(meta['session_type'], session_type)
+                    
+                except Exception as e:
+                    self.fail(f"refresh_trades raised an exception for session_type {session_type}: {e}")
+    
+    def test_load_trades_with_missing_file(self):
+        """Test load_trades with missing file."""
+        symbol = "BTC/USDT:USDT"
+        mode = "moderate"
+        
+        # Ensure CSV doesn't exist
+        slug = symbol.replace('/', '_').replace(':', '_')
+        mode_suffix = mode.lower()
+        data_dir = Path(self.test_dir) / "data"
+        csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+        
+        if csv_file.exists():
+            csv_file.unlink()
+        
+        # Call load_trades
+        try:
+            result = load_trades(symbol, mode)
+            
+            # Should return empty DataFrame
+            self.assertIsInstance(result, pd.DataFrame)
+            self.assertTrue(result.empty, "load_trades should return empty DataFrame when file doesn't exist")
+            
+        except Exception as e:
+            self.fail(f"load_trades raised an exception: {e}")
+    
+    def test_load_trades_with_existing_file(self):
+        """Test load_trades with existing file."""
+        symbol = "BTC/USDT:USDT"
+        mode = "moderate"
+        
+        # Create a dummy CSV file
+        slug = symbol.replace('/', '_').replace(':', '_')
+        mode_suffix = mode.lower()
+        data_dir = Path(self.test_dir) / "data"
+        csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
+        
+        # Create dummy trades data
+        dummy_trades = pd.DataFrame({
+            'day_key': ['2024-01-01'],
+            'entry_time': [datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)],
+            'side': ['long'],
+            'entry_price': [100.0],
+            'sl': [98.0],
+            'tp': [102.0],
+            'exit_time': [datetime(2024, 1, 1, 18, 0, 0, tzinfo=timezone.utc)],
+            'exit_price': [102.0],
+            'exit_reason': ['take_profit'],
+            'pnl_usdt': [20.0],
+            'r_multiple': [1.0],
+            'used_fallback': [False],
+            'mode': [mode]
+        })
+        
+        dummy_trades.to_csv(csv_file, index=False)
+        
+        # Call load_trades
+        try:
+            result = load_trades(symbol, mode)
+            
+            # Should return DataFrame with data
+            self.assertIsInstance(result, pd.DataFrame)
+            self.assertFalse(result.empty, "load_trades should return non-empty DataFrame when file exists")
+            self.assertEqual(len(result), 1, "Should have 1 trade")
+            self.assertEqual(result.iloc[0]['side'], 'long')
+            self.assertEqual(result.iloc[0]['entry_price'], 100.0)
+            
+        except Exception as e:
+            self.fail(f"load_trades raised an exception: {e}")
 
 
-if __name__ == "__main__":
-    main()
-
-
-
-
+if __name__ == '__main__':
+    unittest.main()

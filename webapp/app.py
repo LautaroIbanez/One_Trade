@@ -320,6 +320,9 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
         # Run backtest
         results = run_backtest(symbol, since, until, config)
         
+        # Extract trades DataFrame from results
+        trades_df = results.trades_df if results is not None else pd.DataFrame()
+        
         # Check if strategy is suitable
         if not results.is_strategy_suitable():
             print("\n⚠️ WARNING: Strategy failed validation criteria!")
@@ -359,7 +362,14 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
         if rebuild_completely:
             print(f"🔄 Rebuilding completely for {symbol} {mode} (session_type: {session_type})")
             # Replace CSV completely with new results, no concatenation
-            combined = results.copy() if results is not None and not results.empty else pd.DataFrame()
+            combined = trades_df.copy() if not trades_df.empty else pd.DataFrame()
+        else:
+            print(f"🔄 Incremental update for {symbol} {mode} (session_type: {session_type})")
+            # Concatenate existing trades with new results
+            if not trades_df.empty:
+                combined = pd.concat([existing_trades, trades_df], ignore_index=True)
+            else:
+                combined = existing_trades.copy()
 
         # If there is an active trade and we have a detected exit, append it if not present
         if active is not None:

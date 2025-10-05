@@ -72,6 +72,11 @@ class SimpleTradingStrategy:
         self.commission_rate = config.get('commission_rate', 0.001)  # 0.1% default
         self.slippage_rate = config.get('slippage_rate', 0.0005)     # 0.05% default
         
+        # Capital and leverage for position sizing
+        self.initial_capital = config.get('initial_capital', 1000.0)
+        self.leverage = config.get('leverage', 1.0)
+        self.equity_risk_cap = config.get('equity_risk_cap', 0.01)  # 1% of equity max per trade
+        
         # Daily trend filter
         self.daily_data = daily_data
         self.use_daily_trend_filter = config.get('use_daily_trend_filter', False)
@@ -83,6 +88,27 @@ class SimpleTradingStrategy:
         self.daily_pnl = 0.0
         self.daily_trades = 0
         self.max_daily_trades = config.get('max_daily_trades', 1)
+    
+    def compute_position_size(self, entry_price, stop_loss):
+        """Calculate position size based on risk management and capital constraints."""
+        risk_amount = self.risk_usdt
+        price_diff = abs(entry_price - stop_loss)
+        
+        if price_diff == 0:
+            return 0
+            
+        # Calculate position size based on risk
+        position_size = risk_amount / price_diff
+        
+        # Apply capital and leverage constraints
+        max_position_size = (self.initial_capital * self.leverage) / entry_price
+        position_size = min(position_size, max_position_size)
+        
+        # Additional safety: max equity risk cap per trade
+        max_equity_risk = (self.initial_capital * self.equity_risk_cap) / entry_price
+        position_size = min(position_size, max_equity_risk)
+        
+        return position_size
     
     def reset_daily_state(self):
         """Reset daily tracking variables."""
@@ -319,7 +345,7 @@ class SimpleTradingStrategy:
             else:
                 stop_loss = entry_price + (atr_proxy * self.atr_mult)
                 take_profit = entry_price - (atr_proxy * self.tp_multiplier)
-            position_size = self.risk_usdt / max(abs(entry_price - stop_loss), 1e-9)
+            position_size = self.compute_position_size(entry_price, stop_loss)
             # Return params and the evaluated timestamp for coherence
             return True, {
                 'entry_price': entry_price,
@@ -370,9 +396,7 @@ class SimpleTradingStrategy:
             take_profit = expected_tp
         
         # Calculate position size
-        risk_amount = self.risk_usdt
-        price_diff = abs(entry_price - stop_loss)
-        position_size = risk_amount / price_diff if price_diff > 0 else 0
+        position_size = self.compute_position_size(entry_price, stop_loss)
         
         return {
             'stop_loss': stop_loss,
@@ -1099,7 +1123,7 @@ class SimpleTradingStrategy:
             else:
                 stop_loss = entry_price + (min_atr * self.atr_mult)
                 take_profit = entry_price - (min_atr * self.tp_multiplier)
-            position_size = self.risk_usdt / max(abs(entry_price - stop_loss), 1e-9)
+            position_size = self.compute_position_size(entry_price, stop_loss)
             
             fb_params = {
                 'entry_price': entry_price,
