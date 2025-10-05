@@ -51,7 +51,6 @@ class TestRefreshBehavior(unittest.TestCase):
         """Test that refresh_trades completes successfully when CSV is deleted."""
         symbol = "BTC/USDT:USDT"
         mode = "moderate"
-        session_type = "session"
         
         # Ensure CSV doesn't exist
         slug = symbol.replace('/', '_').replace(':', '_')
@@ -68,7 +67,7 @@ class TestRefreshBehavior(unittest.TestCase):
         
         # Call refresh_trades
         try:
-            result = refresh_trades(symbol, mode, session_type)
+            result = refresh_trades(symbol, mode)
             
             # Verify function completed without raising
             self.assertIsInstance(result, str)
@@ -100,10 +99,8 @@ class TestRefreshBehavior(unittest.TestCase):
                 
                 self.assertIn('symbol', meta)
                 self.assertIn('mode', meta)
-                self.assertIn('session_type', meta)
                 self.assertEqual(meta['symbol'], symbol)
                 self.assertEqual(meta['mode'], mode)
-                self.assertEqual(meta['session_type'], session_type)
             
         except Exception as e:
             self.fail(f"refresh_trades raised an exception: {e}")
@@ -112,7 +109,6 @@ class TestRefreshBehavior(unittest.TestCase):
         """Test that refresh_trades works with existing CSV."""
         symbol = "BTC/USDT:USDT"
         mode = "moderate"
-        session_type = "session"
         
         # Create a dummy CSV file
         slug = symbol.replace('/', '_').replace(':', '_')
@@ -141,7 +137,7 @@ class TestRefreshBehavior(unittest.TestCase):
         
         # Call refresh_trades
         try:
-            result = refresh_trades(symbol, mode, session_type)
+            result = refresh_trades(symbol, mode)
             
             # Verify function completed without raising
             self.assertIsInstance(result, str)
@@ -156,7 +152,6 @@ class TestRefreshBehavior(unittest.TestCase):
     def test_refresh_trades_different_modes(self):
         """Test refresh_trades with different modes."""
         symbol = "BTC/USDT:USDT"
-        session_type = "session"
         
         modes = ["conservative", "moderate", "aggressive"]
         
@@ -177,7 +172,7 @@ class TestRefreshBehavior(unittest.TestCase):
                 
                 # Call refresh_trades
                 try:
-                    result = refresh_trades(symbol, mode, session_type)
+                    result = refresh_trades(symbol, mode)
                     
                     # Verify function completed without raising
                     self.assertIsInstance(result, str)
@@ -191,53 +186,6 @@ class TestRefreshBehavior(unittest.TestCase):
                     
                 except Exception as e:
                     self.fail(f"refresh_trades raised an exception for mode {mode}: {e}")
-    
-    def test_refresh_trades_different_session_types(self):
-        """Test refresh_trades with different session types."""
-        symbol = "BTC/USDT:USDT"
-        mode = "moderate"
-        
-        session_types = ["session", "24h"]
-        
-        for session_type in session_types:
-            with self.subTest(session_type=session_type):
-                # Ensure CSV doesn't exist
-                slug = symbol.replace('/', '_').replace(':', '_')
-                mode_suffix = mode.lower()
-                data_dir = Path(self.test_dir) / "data"
-                csv_file = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
-                meta_file = data_dir / f"trades_final_{slug}_{mode_suffix}_meta.json"
-                
-                # Remove files if they exist
-                if csv_file.exists():
-                    csv_file.unlink()
-                if meta_file.exists():
-                    meta_file.unlink()
-                
-                # Call refresh_trades
-                try:
-                    result = refresh_trades(symbol, mode, session_type)
-                    
-                    # Verify function completed without raising
-                    self.assertIsInstance(result, str)
-                    self.assertIn("OK", result)
-                    
-                    # Verify CSV file was created
-                    self.assertTrue(csv_file.exists(), f"CSV file should be created for session_type {session_type}")
-                    
-                    # Verify meta file was created
-                    self.assertTrue(meta_file.exists(), f"Meta file should be created for session_type {session_type}")
-                    
-                    # Verify meta file contains correct session_type
-                    if meta_file.exists():
-                        import json
-                        with open(meta_file, 'r') as f:
-                            meta = json.load(f)
-                        
-                        self.assertEqual(meta['session_type'], session_type)
-                    
-                except Exception as e:
-                    self.fail(f"refresh_trades raised an exception for session_type {session_type}: {e}")
     
     def test_load_trades_with_missing_file(self):
         """Test load_trades with missing file."""

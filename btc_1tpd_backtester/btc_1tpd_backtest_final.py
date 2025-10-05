@@ -24,6 +24,7 @@ from .indicators import ema, atr, adx, vwap
 from .plot_results import create_comprehensive_report
 from .strategy_multifactor import MultifactorStrategy
 from .backtester import BacktestResults
+from .strategies import get_strategy_for_mode
 
 
 class SimpleTradingStrategy:
@@ -32,6 +33,13 @@ class SimpleTradingStrategy:
     def __init__(self, config, daily_data=None):
         """Initialize strategy with configuration parameters."""
         self.config = config
+        
+        # Check if we should use mode-based strategies
+        strategy_type = config.get('strategy_type')
+        if strategy_type in ['mean_reversion', 'trend_following', 'breakout_fade']:
+            # Use new mode-based strategy
+            self.mode_strategy = get_strategy_for_mode('', config)
+            return
         
         # Check if we should use multifactor strategy
         self.use_multifactor = config.get('use_multifactor_strategy', False)
@@ -58,8 +66,8 @@ class SimpleTradingStrategy:
         self.orb_window = config.get('orb_window', (11, 12))
         self.entry_window = config.get('entry_window', (11, 13))
         self.exit_window = config.get('exit_window', None)  # Exit window in local time
-        self.full_day_trading = config.get('full_day_trading', False)
-        self.session_trading = config.get('session_trading', False)
+        self.full_day_trading = False  # Always use session trading
+        self.session_trading = True
         
         # Session timezone
         self.session_timezone = config.get('session_timezone', 'America/Argentina/Buenos_Aires')
@@ -125,17 +133,12 @@ class SimpleTradingStrategy:
         """Calculate ORB levels for the day based on configured window."""
         start_h, end_h = orb_window
         
-        # Convert to local timezone for filtering if session trading is enabled
-        if self.session_trading and not self.full_day_trading:
-            # Convert UTC index to local timezone for hour filtering
-            local_data = day_data.copy()
-            local_data.index = local_data.index.tz_convert(self.tz)
-            orb_data = local_data[(local_data.index.hour >= start_h) & (local_data.index.hour < end_h)]
-            # Convert back to UTC for calculations
-            orb_data.index = orb_data.index.tz_convert(timezone.utc)
-        else:
-            # Use UTC hours directly for full day trading
-            orb_data = day_data[(day_data.index.hour >= start_h) & (day_data.index.hour < end_h)]
+        # Convert to local timezone for filtering (session trading only)
+        local_data = day_data.copy()
+        local_data.index = local_data.index.tz_convert(self.tz)
+        orb_data = local_data[(local_data.index.hour >= start_h) & (local_data.index.hour < end_h)]
+        # Convert back to UTC for calculations
+        orb_data.index = orb_data.index.tz_convert(timezone.utc)
         
         if orb_data.empty:
             return None, None
@@ -416,9 +419,9 @@ class SimpleTradingStrategy:
         entry_time = trade_params['entry_time']
         remaining_data = day_data[day_data.index > entry_time]
         
-        # Calculate exit cutoff time based on session type
+        # Calculate exit cutoff time for session trading
         exit_cutoff = None
-        if self.session_trading and not self.full_day_trading and self.exit_window:
+        if self.exit_window:
             # Convert exit window to UTC for session trading
             exit_start_h, exit_end_h = self.exit_window
             # Get the date of entry in local timezone
@@ -428,9 +431,6 @@ class SimpleTradingStrategy:
             # Convert to UTC
             exit_cutoff = exit_cutoff_local.astimezone(timezone.utc)
             print(f"Session exit cutoff: {exit_cutoff} (local: {exit_cutoff_local})")
-        elif self.full_day_trading and not remaining_data.empty:
-            # In full day trading, cap evaluation window to 24h from entry_time
-            exit_cutoff = entry_time + pd.Timedelta(hours=24)
         
         # Apply cutoff to remaining data
         if exit_cutoff is not None:
@@ -447,13 +447,12 @@ class SimpleTradingStrategy:
                     exit_price = last_candle['close'].iloc[-1]
                 else:
                     exit_price = day_data['close'].iloc[-1] if not day_data.empty else entry_price
-                exit_reason = 'session_close' if self.session_trading else 'time_limit_24h'
+                exit_reason = 'session_close'
             else:
                 # Exit at end of day
                 exit_time = day_data.index[-1]
                 exit_price = day_data['close'].iloc[-1]
-                # Use session_end only if not in full_day_trading mode
-                exit_reason = 'session_end' if not self.full_day_trading else 'end_of_data'
+                exit_reason = 'session_end'
         else:
             # Evaluate each candle sequentially
             exit_time = None
@@ -551,18 +550,7 @@ class SimpleTradingStrategy:
                         exit_price = last_candle['close'].iloc[-1]
                     else:
                         exit_price = day_data['close'].iloc[-1] if not day_data.empty else entry_price
-                    exit_reason = 'session_close' if self.session_trading else 'time_limit_24h'
-                elif self.full_day_trading:
-                    forced_time = entry_time + pd.Timedelta(hours=24)
-                    # Use the last available candle not after forced_time
-                    last_idx = remaining_data.index[-1] if not remaining_data.empty else entry_time
-                    exit_time = min(last_idx, forced_time)
-                    # Price from the last available candle
-                    exit_price = remaining_data['close'].iloc[-1] if not remaining_data.empty else day_data.loc[entry_time, 'close']
-                    # Guarantee exit_time > entry_time
-                    if exit_time <= entry_time:
-                        exit_time = entry_time + pd.Timedelta(minutes=1)
-                    exit_reason = 'time_limit_24h'
+                    exit_reason = 'session_close'
                 else:
                     exit_time = remaining_data.index[-1]
                     exit_price = remaining_data['close'].iloc[-1]
@@ -608,6 +596,10 @@ class SimpleTradingStrategy:
     
     def process_day(self, day_data, date):
         """Process trading for a single day."""
+        # Check if we have a mode-based strategy
+        if hasattr(self, 'mode_strategy'):
+            return self.mode_strategy.process_day(day_data, date)
+        
         if self.use_multifactor:
             # Delegate to MultifactorStrategy
             return self.multifactor_strategy.process_day(day_data, date)
@@ -623,13 +615,8 @@ class SimpleTradingStrategy:
             if daily_trend is None:
                 return trades  # Skip if no daily trend data available
         
-        # If in full_day_trading, split session_data (first 24h) for entries/indicators and keep full day_data (possibly extended) for exits
-        if self.full_day_trading:
-            session_start = pd.Timestamp(date, tz='UTC')
-            session_end = session_start + pd.Timedelta(days=1)
-            session_data = day_data[(day_data.index >= session_start) & (day_data.index < session_end)]
-        else:
-            session_data = day_data
+        # Use session data for entries/indicators
+        session_data = day_data
 
         # Use new fallback direction detection
         def _preferred_side(df: pd.DataFrame) -> str:
@@ -647,10 +634,7 @@ class SimpleTradingStrategy:
                     break
                 
                 # Update session_data for the remaining session
-                if self.full_day_trading:
-                    session_data = current_data[(current_data.index >= session_start) & (current_data.index < session_end)]
-                else:
-                    session_data = current_data
+                session_data = current_data
                 
                 if session_data.empty:
                     break
@@ -787,27 +771,17 @@ class SimpleTradingStrategy:
                             return trades
             return trades
         
-        # Determine entry window based on full_day_trading flag
-        if self.full_day_trading:
-            # In full day trading, ensure entry window starts at least after ORB ends
-            ew_start = max(self.orb_window[1], self.entry_window[0])
-            ew_end = 24
-            entry_window = (ew_start, ew_end)
-        else:
-            entry_window = self.entry_window
+        # Use configured entry window
+        entry_window = self.entry_window
         
-        # Entry window configurable - convert to local timezone if session trading
+        # Entry window configurable - convert to local timezone for session trading
         ew_start, ew_end = entry_window
-        if self.session_trading and not self.full_day_trading:
-            # Convert UTC index to local timezone for hour filtering
-            local_session_data = session_data.copy()
-            local_session_data.index = local_session_data.index.tz_convert(self.tz)
-            entry_data = local_session_data[(local_session_data.index.hour >= ew_start) & (local_session_data.index.hour < ew_end)]
-            # Convert back to UTC for calculations
-            entry_data.index = entry_data.index.tz_convert(timezone.utc)
-        else:
-            # Use UTC hours directly for full day trading
-            entry_data = session_data[(session_data.index.hour >= ew_start) & (session_data.index.hour < ew_end)]
+        # Convert UTC index to local timezone for hour filtering
+        local_session_data = session_data.copy()
+        local_session_data.index = local_session_data.index.tz_convert(self.tz)
+        entry_data = local_session_data[(local_session_data.index.hour >= ew_start) & (local_session_data.index.hour < ew_end)]
+        # Convert back to UTC for calculations
+        entry_data.index = entry_data.index.tz_convert(timezone.utc)
         
         if entry_data.empty:
             if self.force_one_trade:
@@ -1169,7 +1143,10 @@ def run_backtest(symbol, since, until, config):
     print(f"Symbol: {symbol}")
     print(f"Period: {since} to {until}")
     print(f"Risk: {config['risk_usdt']} USDT")
-    print(f"ADX Min: {config['adx_min']}")
+    strategy_type = config.get('strategy_type', 'legacy')
+    print(f"Strategy: {strategy_type}")
+    if 'adx_min' in config:
+        print(f"ADX Min: {config['adx_min']}")
     print("=" * 60)
     
     # Fetch data
@@ -1191,8 +1168,8 @@ def run_backtest(symbol, since, until, config):
             print(f"⚠️ Could not fetch daily data: {e}")
             config['use_daily_trend_filter'] = False
     
-    # Extend data range if needed for exit windows
-    if config.get('full_day_trading', False) or (config.get('session_trading', False) and config.get('exit_window')):
+    # Extend data range if needed for exit windows (session trading only)
+    if config.get('session_trading', False) and config.get('exit_window'):
         try:
             from datetime import datetime as _dt, timezone as _tz, timedelta as _td
             # Compute next day until (exclusive upper bound handled in utils)
@@ -1226,38 +1203,11 @@ def run_backtest(symbol, since, until, config):
     print("\n🔄 Running backtest...")
     all_trades = []
 
-    if config.get('full_day_trading', False):
-        # Build windows per date including next-day candles for exits: [start, start+48h)
-        # Parse since/until bounds to dates
-        def _to_date(d):
-            try:
-                if isinstance(d, str):
-                    return datetime.fromisoformat(d).date()
-                if hasattr(d, 'date'):
-                    return d.date() if not isinstance(d, datetime) else d.date()
-            except Exception:
-                pass
-            return None
-        since_date = _to_date(since)
-        until_date = _to_date(until)
-        unique_dates = sorted(set(data.index.date))
-        # Filter only dates within [since_date, until_date]
-        if since_date is not None and until_date is not None:
-            unique_dates = [d for d in unique_dates if d >= since_date and d <= until_date]
-        for date in unique_dates:
-            start = pd.Timestamp(date, tz='UTC')
-            end = start + pd.Timedelta(days=2)
-            # Include extra candles for exits but do not process entry days beyond 'until'
-            day_slice = data[(data.index >= start) & (data.index < end)]
-            if day_slice is None or day_slice.empty:
-                continue
-            trades = strategy.process_day(day_slice, date)
-            all_trades.extend(trades)
-    else:
-        daily_groups = data.groupby(data.index.date)
-        for date, day_data in daily_groups:
-            trades = strategy.process_day(day_data, date)
-            all_trades.extend(trades)
+    # Process each day using session trading
+    daily_groups = data.groupby(data.index.date)
+    for date, day_data in daily_groups:
+        trades = strategy.process_day(day_data, date)
+        all_trades.extend(trades)
     
     # Create DataFrame from trades
     trades_df = pd.DataFrame(all_trades)

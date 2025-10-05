@@ -47,36 +47,25 @@ def create_mock_trades_data(num_trades=5, start_date=None):
 
 
 def test_time_window_alignment():
-    """Test that time windows are correctly aligned with 24h switch."""
+    """Test that time windows are correctly configured for session trading."""
     print("Testing time window alignment...")
     
     # Import only the config function to avoid heavy dependencies
     sys.path.append(str(repo_root / "webapp"))
     from app import get_effective_config
     
-    # Test normal mode configuration
-    config_normal = get_effective_config("BTC/USDT:USDT", "moderate", False)
-    print(f"   Normal mode entry_window: {config_normal['entry_window']}")
-    assert config_normal['entry_window'] == (11, 18), f"Expected (11, 18), got {config_normal['entry_window']}"
-    
-    # Test 24h mode configuration
-    config_24h = get_effective_config("BTC/USDT:USDT", "moderate", True)
-    print(f"   24h mode entry_window: {config_24h['entry_window']}")
-    assert config_24h['entry_window'] == (1, 24), f"Expected (1, 24), got {config_24h['entry_window']}"
+    # Test moderate mode configuration
+    config_moderate = get_effective_config("BTC/USDT:USDT", "moderate")
+    print(f"   Moderate mode entry_window: {config_moderate['entry_window']}")
+    assert config_moderate['entry_window'] == (11, 14), f"Expected (11, 14), got {config_moderate['entry_window']}"
     
     # Test conservative mode
-    config_conservative_normal = get_effective_config("BTC/USDT:USDT", "conservative", False)
-    assert config_conservative_normal['entry_window'] == (11, 18), "Conservative normal mode should be (11, 18)"
-    
-    config_conservative_24h = get_effective_config("BTC/USDT:USDT", "conservative", True)
-    assert config_conservative_24h['entry_window'] == (1, 24), "Conservative 24h mode should be (1, 24)"
+    config_conservative = get_effective_config("BTC/USDT:USDT", "conservative")
+    assert config_conservative['entry_window'] == (11, 14), "Conservative mode should be (11, 14)"
     
     # Test aggressive mode
-    config_aggressive_normal = get_effective_config("BTC/USDT:USDT", "aggressive", False)
-    assert config_aggressive_normal['entry_window'] == (10, 18), "Aggressive normal mode should be (10, 18)"
-    
-    config_aggressive_24h = get_effective_config("BTC/USDT:USDT", "aggressive", True)
-    assert config_aggressive_24h['entry_window'] == (1, 24), "Aggressive 24h mode should be (1, 24)"
+    config_aggressive = get_effective_config("BTC/USDT:USDT", "aggressive")
+    assert config_aggressive['entry_window'] == (11, 14), "Aggressive mode should be (11, 14)"
     
     print("Time window alignment test passed")
 
@@ -197,7 +186,7 @@ def main():
         print("\n" + "=" * 60)
         print("All core functionality tests passed!")
         print("\nSummary:")
-        print("- Time windows are properly aligned with 24h switch")
+        print("- Time windows are properly configured for session trading")
         print("- Sidecar metadata structure includes all required fields")
         print("- Freshness validation logic works correctly")
         print("- Signal status handling accepts 'signal' status")

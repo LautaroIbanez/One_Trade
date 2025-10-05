@@ -47,8 +47,8 @@ class MultifactorStrategy:
         self.orb_window = config.get('orb_window', (8, 9))
         self.entry_window = config.get('entry_window', (11, 14))
         self.exit_window = config.get('exit_window', (20, 22))
-        self.full_day_trading = config.get('full_day_trading', False)
-        self.session_trading = config.get('session_trading', True)
+        self.full_day_trading = False  # Always use session trading
+        self.session_trading = True
         
         # Timezone
         self.session_timezone = config.get('session_timezone', 'America/Argentina/Buenos_Aires')
@@ -344,9 +344,9 @@ class MultifactorStrategy:
         # Obtener datos posteriores a la entrada
         remaining_data = data[data.index > entry_time]
         
-        # Calcular cutoff time si es necesario
+        # Calcular cutoff time para session trading
         exit_cutoff = None
-        if self.session_trading and not self.full_day_trading and self.exit_window:
+        if self.exit_window:
             exit_start_h, exit_end_h = self.exit_window
             entry_date_local = entry_time.astimezone(self.tz).date()
             exit_cutoff_local = pd.Timestamp.combine(
@@ -355,9 +355,6 @@ class MultifactorStrategy:
             ).tz_localize(self.tz)
             exit_cutoff = exit_cutoff_local.astimezone(timezone.utc)
             remaining_data = remaining_data[remaining_data.index <= exit_cutoff]
-        elif self.full_day_trading:
-            exit_cutoff = entry_time + pd.Timedelta(hours=24)
-            remaining_data = remaining_data[remaining_data.index <= exit_cutoff]
         
         if remaining_data.empty:
             # Salida forzada
@@ -365,7 +362,7 @@ class MultifactorStrategy:
                 exit_time = exit_cutoff
                 last_candle = data[data.index <= exit_cutoff]
                 exit_price = last_candle['close'].iloc[-1] if not last_candle.empty else entry_price
-                exit_reason = 'session_close' if self.session_trading else 'time_limit_24h'
+                exit_reason = 'session_close'
             else:
                 exit_time = data.index[-1]
                 exit_price = data['close'].iloc[-1]
@@ -411,7 +408,7 @@ class MultifactorStrategy:
                     exit_time = exit_cutoff
                     last_candle = data[data.index <= exit_cutoff]
                     exit_price = last_candle['close'].iloc[-1] if not last_candle.empty else entry_price
-                    exit_reason = 'session_close' if self.session_trading else 'time_limit_24h'
+                    exit_reason = 'session_close'
                 else:
                     exit_time = remaining_data.index[-1]
                     exit_price = remaining_data['close'].iloc[-1]
@@ -468,36 +465,23 @@ class MultifactorStrategy:
         # Calcular indicadores
         data_with_indicators = self.calculate_indicators(day_data)
         
-        # Determinar ventana de sesión
-        if self.full_day_trading:
-            session_start = pd.Timestamp(date, tz='UTC')
-            session_end = session_start + pd.Timedelta(days=1)
-            session_data = day_data[(day_data.index >= session_start) & (day_data.index < session_end)]
-        else:
-            session_data = day_data
+        # Usar datos de sesión
+        session_data = day_data
         
-        # Convertir a timezone local para filtrado si es necesario
-        if self.session_trading and not self.full_day_trading:
-            local_session_data = session_data.copy()
-            local_session_data.index = local_session_data.index.tz_convert(self.tz)
-            
-            # Filtrar por ventana de entrada
-            ew_start, ew_end = self.entry_window
-            entry_data_local = local_session_data[
-                (local_session_data.index.hour >= ew_start) & 
-                (local_session_data.index.hour < ew_end)
-            ]
-            
-            # Convertir de vuelta a UTC
-            entry_data_local.index = entry_data_local.index.tz_convert(timezone.utc)
-            entry_data = entry_data_local
-        else:
-            # Usar ventana UTC para trading 24h
-            ew_start, ew_end = self.entry_window
-            entry_data = session_data[
-                (session_data.index.hour >= ew_start) & 
-                (session_data.index.hour < ew_end)
-            ]
+        # Convertir a timezone local para filtrado
+        local_session_data = session_data.copy()
+        local_session_data.index = local_session_data.index.tz_convert(self.tz)
+        
+        # Filtrar por ventana de entrada
+        ew_start, ew_end = self.entry_window
+        entry_data_local = local_session_data[
+            (local_session_data.index.hour >= ew_start) & 
+            (local_session_data.index.hour < ew_end)
+        ]
+        
+        # Convertir de vuelta a UTC
+        entry_data_local.index = entry_data_local.index.tz_convert(timezone.utc)
+        entry_data = entry_data_local
         
         if entry_data.empty:
             return trades

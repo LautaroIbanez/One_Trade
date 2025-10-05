@@ -1,32 +1,33 @@
 # Changes Summary
 
-## 1. Eliminar la configuración opcional de Trading 24hs
+## 1. Consolidar a Sesión AR Única - Eliminar Soporte 24h
 
 ### Changes Made:
 
 #### Webapp (`webapp/app.py`):
-- **Removed 24h Switch**: Eliminated `dbc.Switch(id="full-day-trading")` from the navbar
-- **Updated Callback**: Removed `full_day_trading` parameter from `update_dashboard` callback
+- **Removed Session Type Radio**: Eliminated `dbc.RadioItems(id="session-type")` from the navbar
+- **Updated Callback**: Removed `session_type` parameter from `update_dashboard` callback
 - **Simplified Configuration**: 
-  - `BASE_CONFIG` now has `full_day_trading: True` and `force_one_trade: True`
-  - `MODE_CONFIG` integrates 24h values directly (no more `full_day_overrides`)
-  - All modes now use `orb_window: (0, 1)` and `entry_window: (1, 24)`
+  - `BASE_CONFIG` now has `full_day_trading: False` and `session_trading: True`
+  - All modes use session-based AR timezone windows
+  - Entry windows: `(11, 14)` for all modes (AR morning session)
+  - Exit windows: `(20, 22)` for all modes (AR evening session)
 - **Updated Functions**:
-  - `get_effective_config()` no longer takes `full_day_trading` parameter
-  - `refresh_trades()` no longer takes `full_day_trading` parameter
-  - `load_trades()` no longer takes `full_day_trading` parameter
+  - `get_effective_config()` no longer takes `session_type` parameter
+  - `refresh_trades()` no longer takes `session_type` parameter
+  - `load_trades()` no longer takes `session_type` parameter
 - **File Naming**: Removed `_24h` suffix logic, always uses standard filenames
 
-#### Live Monitor (`btc_1tpd_backtester/live_monitor.py`):
-- **Updated Function**: `detect_or_update_active_trade()` no longer takes `full_day_trading` parameter
-- **Hardcoded Value**: Always sets `full_day_trading=True` in `ActiveTrade`
+#### Backtester (`btc_1tpd_backtester/btc_1tpd_backtest_final.py`):
+- **Removed 24h Logic**: Eliminated all `full_day_trading` branches
+- **Session Only**: Always uses `full_day_trading: False` and `session_trading: True`
+- **Exit Reasons**: Updated to use `session_close` and `session_end` instead of `time_limit_24h`
+- **Data Processing**: Simplified to use session data only
 
-#### Signals (`btc_1tpd_backtester/signals/today_signal.py`):
-- **Default Config**: Updated to always use 24h values:
-  - `orb_window: (0, 1)` (ORB at midnight UTC)
-  - `entry_window: (1, 24)` (Can enter throughout the day)
-  - `full_day_trading: True`
-- **Data Fetching**: Always fetches next day data for 24h trading mode
+#### Strategy (`btc_1tpd_backtester/strategy_multifactor.py`):
+- **Removed 24h Logic**: Eliminated all `full_day_trading` branches
+- **Session Only**: Always uses `full_day_trading: False` and `session_trading: True`
+- **Exit Reasons**: Updated to use `session_close` and `session_end` instead of `time_limit_24h`
 
 ## 2. Localizar todos los timestamps a hora Argentina
 
@@ -71,11 +72,12 @@
 
 ## Benefits
 
-### 24h Configuration Removal:
-- **Simplified UI**: No more confusing 24h switch
-- **Consistent Behavior**: Always uses 24h trading mode
+### Session AR Consolidation:
+- **Simplified UI**: No more confusing session type selection
+- **Consistent Behavior**: Always uses AR session trading mode
 - **Reduced Complexity**: Single configuration path
 - **Better Performance**: No more mode switching logic
+- **Localized Trading**: Optimized for Argentina timezone sessions
 
 ### Argentina Timezone Localization:
 - **User-Friendly**: All times displayed in local Argentina time
@@ -93,4 +95,4 @@
 - `webapp/test_simple_verification.py` - Comprehensive verification
 - `CHANGES_SUMMARY.md` - This summary document
 
-All changes have been successfully implemented and tested. The system now operates in 24h trading mode by default and displays all timestamps in Argentina timezone.
+All changes have been successfully implemented and tested. The system now operates in AR session trading mode by default and displays all timestamps in Argentina timezone.

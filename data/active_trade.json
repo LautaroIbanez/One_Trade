@@ -1,10 +1,10 @@
 {
   "symbol": "BTC/USDT:USDT",
-  "side": "long",
-  "entry_price": 120392.9,
-  "stop_loss": 120282.83428571429,
-  "take_profit": 120576.34285714285,
-  "entry_time": "2025-10-03T11:00:00+00:00",
+  "side": "short",
+  "entry_price": 122981.0,
+  "stop_loss": 123190.81999999999,
+  "take_profit": 122561.36000000002,
+  "entry_time": "2025-10-05T11:00:00+00:00",
   "mode": "aggressive",
-  "full_day_trading": true
+  "full_day_trading": false
 }

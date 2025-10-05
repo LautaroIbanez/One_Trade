@@ -64,9 +64,9 @@ def get_today_trade_recommendation(symbol: str, config: Dict[str, Any], now: Opt
         "atr_mult_orb": 1.2,
         "tp_multiplier": 2.0,
         "adx_min": 15.0,
-        "orb_window": (0, 1),  # ORB at midnight UTC (24h mode)
-        "entry_window": (1, 24),  # Can enter throughout the day
-        "full_day_trading": True,  # Always True for 24h mode
+        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
+        "entry_window": (11, 14),  # Entry window in AR time
+        "full_day_trading": False,  # Always False for session mode
         "use_multifactor_strategy": False  # Use ORB by default
     }
     
@@ -343,7 +343,7 @@ def _get_orb_recommendation(symbol: str, config: Dict[str, Any], now: datetime) 
             return rec
         return {"status": "no_breakout", "orb_high": orb_high, "orb_low": orb_low}
 
-    # Fetch today's session data (and next day if 24h) in 15m
+    # Fetch today's session data (and next day for exit window) in 15m
     df = None
     if fetch_historical_data is not None:
         try:
@@ -351,7 +351,7 @@ def _get_orb_recommendation(symbol: str, config: Dict[str, Any], now: datetime) 
             since = today.isoformat()
             until = today.isoformat()
             df = fetch_historical_data(symbol, since, until, "15m")
-            # Always fetch next day for 24h trading mode
+            # Always fetch next day for exit window
             next_day = (today + timedelta(days=1)).isoformat()
             extra = fetch_historical_data(symbol, until, next_day, "15m")
             if extra is not None and not extra.empty:

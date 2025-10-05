@@ -41,40 +41,17 @@ except Exception:
 # Centralized configuration for modes
 BASE_CONFIG = {
     "risk_usdt": 20.0, 
-    "atr_mult_orb": 1.2, 
-    "tp_multiplier": 2.0, 
-    "adx_min": 15.0,
     "commission_rate": 0.001,  # 0.1% default
     "slippage_rate": 0.0005,   # 0.05% default
     "initial_capital": 1000.0, # Initial capital in USDT
     "leverage": 1.0,           # Leverage multiplier
     "full_day_trading": False,  # Default to session trading
     "force_one_trade": True,   # Always force one trade
-    "fallback_mode": "EMA15_pullback",
     # Session trading parameters
     "session_trading": True,   # Enable session-based trading
     "entry_window": (11, 14),  # Entry window in local time (AR)
     "exit_window": (20, 22),   # Exit window in local time (AR)
     "session_timezone": "America/Argentina/Buenos_Aires",
-    # Multifactor strategy parameters
-    "use_multifactor_strategy": False,  # Enable multifactor strategy
-    "min_reliability_score": 0.6,       # Minimum reliability score for signals
-    "ema_fast": 12,                     # Fast EMA period
-    "ema_slow": 26,                     # Slow EMA period
-    "adx_period": 14,                   # ADX calculation period
-    "rsi_period": 14,                   # RSI calculation period
-    "rsi_oversold": 30,                 # RSI oversold level
-    "rsi_overbought": 70,               # RSI overbought level
-    "macd_fast": 12,                    # MACD fast period
-    "macd_slow": 26,                    # MACD slow period
-    "macd_signal": 9,                   # MACD signal period
-    "atr_multiplier": 2.0,              # ATR multiplier for stop loss
-    "dynamic_sl": True,                 # Enable dynamic stop loss
-    "trailing_stop": False,             # Enable trailing stop
-    "trailing_stop_atr": 1.5,           # Trailing stop ATR multiplier
-    "volume_confirmation": True,        # Enable volume confirmation
-    "volume_threshold": 1.2,            # Volume threshold (1.2x average)
-    "momentum_confirmation": True,      # Enable momentum confirmation
     # Validation parameters
     "min_win_rate": 80.0,               # Minimum win rate percentage
     "min_pnl": 0.0,                     # Minimum PnL (must be > 0)
@@ -85,118 +62,145 @@ BASE_CONFIG = {
     "backtest_start_date": None,  # ISO date string e.g., "2024-01-01"
     "lookback_days": 30,
 }
+# Mode to assets mapping
+MODE_ASSETS = {
+    "conservative": [
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT",
+        "BNB/USDT:USDT"
+    ],
+    "moderate": [
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT", 
+        "BNB/USDT:USDT",
+        "SOL/USDT:USDT",
+        "ADA/USDT:USDT"
+    ],
+    "aggressive": [
+        "BTC/USDT:USDT",
+        "ETH/USDT:USDT",
+        "BNB/USDT:USDT", 
+        "SOL/USDT:USDT",
+        "ADA/USDT:USDT",
+        "XRP/USDT:USDT",
+        "DOGE/USDT:USDT",
+        "AVAX/USDT:USDT"
+    ]
+}
+
 MODE_CONFIG = {
     "conservative": {
+        # Risk Management
         "risk_usdt": 15.0,
-        "atr_mult_orb": 1.5, 
-        "tp_multiplier": 1.0,  # Exact 1R target 
-        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
-        "entry_window": (11, 14),  # Entry window in AR time
-        "exit_window": (20, 22),   # Exit window in AR time
         "commission_rate": 0.001,
         "slippage_rate": 0.0005,
-        "initial_capital": 1000.0,
         "leverage": 1.0,
-        "force_one_trade": True,
-        "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires",
-        # Multifactor strategy parameters for conservative mode
-        "use_multifactor_strategy": False,  # Use ORB by default
-        "min_reliability_score": 0.7,       # Higher reliability requirement
-        "atr_multiplier": 1.5,              # Tighter stops
-        "volume_threshold": 1.5,            # Higher volume requirement
-        # R-multiple configuration
-        "target_r_multiple": 1.0,           # Target 1R per trade
-        "risk_reward_ratio": 1.0,           # 1:1 risk-reward ratio
-        # Validation parameters for conservative mode
-        "min_win_rate": 85.0,               # Higher win rate requirement
-        "min_pnl": 0.0,                     # Must be profitable
-        "min_avg_r": 1.0,                   # Target 1R average
-        "min_trades": 15,                   # More trades for statistical significance
-        "min_profit_factor": 1.5,           # Higher profit factor requirement
+        "max_drawdown": 0.05,  # 5% max drawdown
+        
+        # Strategy: Mean Reversion + Bollinger/ATR/RSI
+        "strategy_type": "mean_reversion",
+        "bollinger_period": 20,
+        "bollinger_std": 2.0,
+        "rsi_period": 14,
+        "rsi_oversold": 30,
+        "rsi_overbought": 70,
+        "atr_period": 14,
+        "atr_multiplier": 1.5,
+        "volume_threshold": 1.2,
+        
+        # Entry/Exit Rules
+        "entry_conditions": ["bollinger_oversold", "rsi_oversold", "volume_confirmation"],
+        "exit_conditions": ["bollinger_middle", "rsi_neutral", "atr_stop"],
+        "target_r_multiple": 1.0,
+        "risk_reward_ratio": 1.0,
+        "allow_shorts": False,  # Conservative: long only
+        
+        # Validation
+        "min_win_rate": 85.0,
+        "min_avg_r": 1.0,
+        "min_trades": 15,
+        "min_profit_factor": 1.5,
     },
     "moderate": {
+        # Risk Management
         "risk_usdt": 25.0,
-        "atr_mult_orb": 1.2, 
-        "tp_multiplier": 1.5,  # Exact 1.5R target 
-        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
-        "entry_window": (11, 14),  # Entry window in AR time
-        "exit_window": (20, 22),   # Exit window in AR time
         "commission_rate": 0.0012,
         "slippage_rate": 0.0008,
-        "initial_capital": 1000.0,
         "leverage": 1.0,
-        "force_one_trade": True,
-        "fallback_mode": "EMA15_pullback",
-        "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires",
-        # Multifactor strategy parameters for moderate mode
-        "use_multifactor_strategy": True,   # Use multifactor by default
-        "min_reliability_score": 0.6,       # Standard reliability requirement
-        "atr_multiplier": 2.0,              # Standard stops
-        "volume_threshold": 1.2,            # Standard volume requirement
-        # R-multiple configuration
-        "target_r_multiple": 1.5,           # Target 1.5R per trade
-        "risk_reward_ratio": 1.5,           # 1.5:1 risk-reward ratio
-        # Validation parameters for moderate mode
-        "min_win_rate": 80.0,               # Standard win rate requirement
-        "min_pnl": 0.0,                     # Must be profitable
-        "min_avg_r": 1.5,                   # Target 1.5R average
-        "min_trades": 12,                   # Standard trade count
-        "min_profit_factor": 1.3,           # Standard profit factor requirement
+        "max_drawdown": 0.08,  # 8% max drawdown
+        
+        # Strategy: Trend Following + Heikin Ashi + ADX + EMA 9/21
+        "strategy_type": "trend_following",
+        "heikin_ashi": True,
+        "adx_period": 14,
+        "adx_threshold": 25,
+        "ema_fast": 9,
+        "ema_slow": 21,
+        "atr_period": 14,
+        "atr_multiplier": 2.0,
+        "volume_threshold": 1.1,
+        
+        # Entry/Exit Rules
+        "entry_conditions": ["trend_alignment", "adx_strength", "ema_crossover"],
+        "exit_conditions": ["trend_reversal", "adx_weakness", "atr_stop"],
+        "target_r_multiple": 1.5,
+        "risk_reward_ratio": 1.5,
+        "allow_shorts": True,  # Moderate: both directions
+        
+        # Validation
+        "min_win_rate": 80.0,
+        "min_avg_r": 1.5,
+        "min_trades": 12,
+        "min_profit_factor": 1.3,
     },
     "aggressive": {
+        # Risk Management
         "risk_usdt": 40.0,
-        "atr_mult_orb": 1.0, 
-        "tp_multiplier": 2.0,  # Exact 2R target 
-        "orb_window": (8, 9),  # ORB in AR morning (11-12 UTC)
-        "entry_window": (11, 14),  # Entry window in AR time
-        "exit_window": (20, 22),   # Exit window in AR time
         "commission_rate": 0.0015,
         "slippage_rate": 0.001,
-        "initial_capital": 1000.0,
         "leverage": 1.0,
-        "force_one_trade": True,
-        "session_trading": True,
-        "session_timezone": "America/Argentina/Buenos_Aires",
-        # Multifactor strategy parameters for aggressive mode
-        "use_multifactor_strategy": True,   # Use multifactor by default
-        "min_reliability_score": 0.5,       # Lower reliability requirement
-        "atr_multiplier": 2.5,              # Wider stops
-        "volume_threshold": 1.0,            # Lower volume requirement
-        "trailing_stop": True,              # Enable trailing stop
-        # R-multiple configuration
-        "target_r_multiple": 2.0,           # Target 2R per trade
-        "risk_reward_ratio": 2.0,           # 2:1 risk-reward ratio
-        # Validation parameters for aggressive mode
-        "min_win_rate": 75.0,               # Lower win rate requirement
-        "min_pnl": 0.0,                     # Must be profitable
-        "min_avg_r": 2.0,                   # Target 2R average
-        "min_trades": 10,                   # Minimum trade count
-        "min_profit_factor": 1.2,           # Lower profit factor requirement
+        "max_drawdown": 0.12,  # 12% max drawdown
+        
+        # Strategy: Breakout Fade + Counter-trend
+        "strategy_type": "breakout_fade",
+        "breakout_period": 20,
+        "breakout_threshold": 0.02,  # 2% breakout
+        "fade_conditions": ["volume_spike", "rsi_extreme", "bollinger_extreme"],
+        "rsi_period": 14,
+        "rsi_extreme_high": 80,
+        "rsi_extreme_low": 20,
+        "bollinger_period": 20,
+        "bollinger_std": 2.5,
+        "atr_period": 14,
+        "atr_multiplier": 2.5,
+        "volume_threshold": 1.5,
+        
+        # Entry/Exit Rules
+        "entry_conditions": ["breakout_detected", "fade_signal", "volume_confirmation"],
+        "exit_conditions": ["trend_continuation", "atr_stop", "time_exit"],
+        "target_r_multiple": 2.0,
+        "risk_reward_ratio": 2.0,
+        "allow_shorts": True,  # Aggressive: both directions with shorts
+        
+        # Validation
+        "min_win_rate": 75.0,
+        "min_avg_r": 2.0,
+        "min_trades": 10,
+        "min_profit_factor": 1.2,
     },
 }
 
 
-def get_effective_config(symbol: str, mode: str, session_type: str = "session") -> dict:
-    """Return merged BASE_CONFIG with selected mode overrides. Supports both session and 24h trading modes."""
+def get_effective_config(symbol: str, mode: str) -> dict:
+    """Return merged BASE_CONFIG with selected mode overrides. Uses session trading only."""
     mode_cfg = MODE_CONFIG.get((mode or "moderate").lower(), {})
     
     # Start with base config, then apply mode config
     config = {**BASE_CONFIG, **mode_cfg}
     
-    # Override based on session type
-    if session_type == "24h":
-        config["full_day_trading"] = True
-        config["session_trading"] = False
-        # Override windows for 24h mode
-        config["orb_window"] = (0, 1)  # ORB at midnight UTC
-        config["entry_window"] = (1, 24)  # Can enter throughout the day
-        config["exit_window"] = None  # No forced exit window
-    else:  # session mode
-        config["full_day_trading"] = False
-        config["session_trading"] = True
-        # Use mode-specific session windows
+    # Always use session trading
+    config["full_day_trading"] = False
+    config["session_trading"] = True
     
     return config
 
@@ -222,26 +226,65 @@ def format_argentina_time(dt, format_str="%Y-%m-%d %H:%M:%S %Z"):
         return ""
     return arg_dt.strftime(format_str)
 
-# Symbols supported (reused from dashboards)
-DEFAULT_SYMBOLS = [
-    "BTC/USDT:USDT",
-    "ETH/USDT:USDT",
-    "BNB/USDT:USDT",
-    "SOL/USDT:USDT",
-    "ADA/USDT:USDT",
-    "XRP/USDT:USDT",
-]
+# Default symbols (will be updated based on mode)
+DEFAULT_SYMBOLS = MODE_ASSETS["moderate"]  # Default to moderate mode symbols
+
+def get_symbols_for_mode(mode: str) -> list:
+    """Get available symbols for a given mode."""
+    return MODE_ASSETS.get(mode.lower(), MODE_ASSETS["moderate"])
+
+# Strategy descriptions for UI
+STRATEGY_DESCRIPTIONS = {
+    "conservative": {
+        "name": "Mean Reversion",
+        "description": "Conservative strategy focused on mean reversion using Bollinger Bands, RSI, and ATR. Targets oversold conditions for long entries with tight risk management.",
+        "tools": ["Bollinger Bands (20, 2.0σ)", "RSI (14)", "ATR (14)", "Volume Confirmation"],
+        "rules": [
+            "Long only - no short positions",
+            "Enter on oversold conditions (price ≤ lower BB, RSI ≤ 30)",
+            "Volume must be 1.2x above average",
+            "Target: 1R with 1:1 risk-reward ratio",
+            "Max drawdown: 5%"
+        ],
+        "risk_profile": "Low risk, high win rate (85%+), consistent small gains"
+    },
+    "moderate": {
+        "name": "Trend Following", 
+        "description": "Moderate strategy using Heikin Ashi, ADX, and EMA crossovers to follow trends. Balances risk and reward with both long and short positions.",
+        "tools": ["Heikin Ashi", "ADX (14)", "EMA 9/21", "ATR (14)", "Volume Confirmation"],
+        "rules": [
+            "Long and short positions allowed",
+            "Enter on EMA crossover with ADX > 25",
+            "Volume must be 1.1x above average", 
+            "Target: 1.5R with 1.5:1 risk-reward ratio",
+            "Max drawdown: 8%"
+        ],
+        "risk_profile": "Medium risk, balanced win rate (80%+), moderate gains"
+    },
+    "aggressive": {
+        "name": "Breakout Fade",
+        "description": "Aggressive counter-trend strategy that fades breakouts using extreme RSI levels and Bollinger Band extremes. High risk, high reward approach.",
+        "tools": ["Bollinger Bands (20, 2.5σ)", "RSI (14)", "ATR (14)", "Volume Spike Detection"],
+        "rules": [
+            "Long and short positions allowed",
+            "Fade breakouts with extreme RSI (≥80 or ≤20)",
+            "Volume must be 1.5x above average",
+            "Target: 2R with 2:1 risk-reward ratio", 
+            "Max drawdown: 12%"
+        ],
+        "risk_profile": "High risk, lower win rate (75%+), high potential gains"
+    }
+}
 
 
-def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str:
+def refresh_trades(symbol: str, mode: str) -> str:
     """
     Refresh trades data by running backtest from last available date to today for a given symbol and mode.
-    Supports both session and 24-hour trading modes.
+    Uses session trading only.
     
     Args:
         symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
         mode: Trading mode ('conservative', 'moderate', 'aggressive')
-        session_type: Trading session type ('session' or '24h')
     
     Returns:
         Status message indicating success or failure
@@ -249,7 +292,7 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
     if run_backtest is None:
         return "Backtest module not available"
     
-    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}, session_type={session_type}")
+    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}")
     try:
         # Load existing trades for the current mode
         existing_trades = load_trades(symbol, mode)
@@ -280,13 +323,13 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
         )
         
         # Determine default since using config lookback/backtest_start_date
-        cfg_for_since = get_effective_config(symbol, mode, session_type)
+        cfg_for_since = get_effective_config(symbol, mode)
         start_override = cfg_for_since.get("backtest_start_date")
         lb_days = cfg_for_since.get("lookback_days", 30)
         default_since = (start_override or (datetime.now(timezone.utc).date() - timedelta(days=int(lb_days))).isoformat())
         
         if mode_change_detected:
-            print(f"🔄 Mode change detected: switching to {session_type} mode")
+            print(f"🔄 Mode change detected: switching to session mode")
             # Clear existing trades and force rebuild
             existing_trades = pd.DataFrame()
             since = default_since
@@ -314,8 +357,8 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
             print(f"⚠️ since/until parsing failed (continuing): {e}")
         
         # Merge base and mode config
-        config = get_effective_config(symbol, mode, session_type)
-        print(f"📊 Effective config for {symbol} {mode} (session_type: {session_type}): {config}")
+        config = get_effective_config(symbol, mode)
+        print(f"📊 Effective config for {symbol} {mode}: {config}")
         
         # Run backtest
         results = run_backtest(symbol, since, until, config)
@@ -351,20 +394,16 @@ def refresh_trades(symbol: str, mode: str, session_type: str = "session") -> str
             "day_key","entry_time","side","entry_price","sl","tp","exit_time","exit_price","exit_reason","pnl_usdt","r_multiple","used_fallback","mode"
         ]
         
-        # Force rebuild for mode changes or when switching session types
+        # Force rebuild for mode changes
         rebuild_completely = mode_change_detected or existing_trades.empty
-        if session_type == "24h":
-            rebuild_completely = True
-            print("ℹ️  24h mode: forcing complete rebuild using default since range.")
-        else:
-            print(f"ℹ️  {session_type} mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
+        print(f"ℹ️  session mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
 
         if rebuild_completely:
-            print(f"🔄 Rebuilding completely for {symbol} {mode} (session_type: {session_type})")
+            print(f"🔄 Rebuilding completely for {symbol} {mode}")
             # Replace CSV completely with new results, no concatenation
             combined = trades_df.copy() if not trades_df.empty else pd.DataFrame()
         else:
-            print(f"🔄 Incremental update for {symbol} {mode} (session_type: {session_type})")
+            print(f"🔄 Incremental update for {symbol} {mode}")
             # Concatenate existing trades with new results
             if not trades_df.empty:
                 combined = pd.concat([existing_trades, trades_df], ignore_index=True)
@@ -778,7 +817,6 @@ def create_app():
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
-                dbc.Col(dbc.RadioItems(id="session-type", options=[{"label": "Sesión AR", "value": "session"}, {"label": "24h", "value": "24h"}], value="session", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
                 dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
@@ -786,6 +824,27 @@ def create_app():
 
     app.layout = dbc.Container([
         navbar,
+
+        # Strategy Description Panel
+        dbc.Card([
+            dbc.CardHeader("Estrategia Actual", id="strategy-header"),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col([
+                        html.H6("Descripción:", className="fw-bold"),
+                        html.P(id="strategy-description"),
+                        html.H6("Herramientas:", className="fw-bold mt-3"),
+                        html.Ul(id="strategy-tools"),
+                    ], md=6),
+                    dbc.Col([
+                        html.H6("Reglas:", className="fw-bold"),
+                        html.Ul(id="strategy-rules"),
+                        html.H6("Perfil de Riesgo:", className="fw-bold mt-3"),
+                        html.P(id="strategy-risk-profile", className="text-muted"),
+                    ], md=6),
+                ])
+            ])
+        ], className="mb-4", id="strategy-panel"),
 
         dbc.Alert(id="alert", is_open=False, color="warning"),
 
@@ -857,6 +916,45 @@ def create_app():
     ], fluid=True)
 
     @app.callback(
+        Output("symbol-dropdown", "options"),
+        Output("symbol-dropdown", "value"),
+        Output("strategy-header", "children"),
+        Output("strategy-description", "children"),
+        Output("strategy-tools", "children"),
+        Output("strategy-rules", "children"),
+        Output("strategy-risk-profile", "children"),
+        Input("investment-mode", "value"),
+    )
+    def update_strategy_panel(mode):
+        """Update strategy panel and symbol dropdown based on selected mode."""
+        if not mode:
+            mode = "moderate"
+        
+        # Get symbols for the mode
+        symbols = get_symbols_for_mode(mode)
+        symbol_options = [{"label": s, "value": s} for s in symbols]
+        default_symbol = symbols[0] if symbols else "BTC/USDT:USDT"
+        
+        # Get strategy description
+        strategy_info = STRATEGY_DESCRIPTIONS.get(mode, STRATEGY_DESCRIPTIONS["moderate"])
+        
+        # Create tools list
+        tools_list = [html.Li(tool) for tool in strategy_info["tools"]]
+        
+        # Create rules list
+        rules_list = [html.Li(rule) for rule in strategy_info["rules"]]
+        
+        return (
+            symbol_options,
+            default_symbol,
+            f"Estrategia: {strategy_info['name']} ({mode.title()})",
+            strategy_info["description"],
+            tools_list,
+            rules_list,
+            strategy_info["risk_profile"]
+        )
+
+    @app.callback(
         Output("current-price", "children"),
         Output("today-reco", "children"),
         Output("metrics", "children"),
@@ -873,10 +971,9 @@ def create_app():
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
-        Input("session-type", "value"),
         prevent_initial_call=False,
     )
-    def update_dashboard(symbol, n_clicks, mode, session_type):
+    def update_dashboard(symbol, n_clicks, mode):
         symbol = (symbol or "BTC/USDT:USDT").strip()
         
         # Fetch latest price
@@ -890,7 +987,7 @@ def create_app():
         # Refresh trades data first
         refresh_msg = ""
         try:
-            refresh_msg = refresh_trades(symbol, mode or "moderate", session_type or "session")
+            refresh_msg = refresh_trades(symbol, mode or "moderate")
         except Exception as e:
             refresh_msg = f"Error refreshing trades: {str(e)}"
         
@@ -931,7 +1028,7 @@ def create_app():
             alert_msg = f"Operación activa: {active_trade.side.upper()} a {active_trade.entry_price} (SL {active_trade.stop_loss}, TP {active_trade.take_profit})."
 
         # Get effective configuration
-        config = get_effective_config(symbol, mode or "moderate", session_type or "session")
+        config = get_effective_config(symbol, mode or "moderate")
         m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
@@ -1017,7 +1114,7 @@ def create_app():
         reco_children = html.Div("Se requiere módulo de señales.")
         try:
             from btc_1tpd_backtester.live_monitor import detect_or_update_active_trade
-            merged_cfg = get_effective_config(symbol, mode, session_type or "session")
+            merged_cfg = get_effective_config(symbol, mode)
             active_or_rec = detect_or_update_active_trade(symbol, mode, merged_cfg)
             # Build card from active_or_rec when we have params
             if active_or_rec is not None:

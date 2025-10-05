@@ -82,7 +82,7 @@ def detect_or_update_active_trade(symbol: str, mode: str, config: Dict[str, Any]
                 take_profit=take_profit,
                 entry_time=str(entry_time),
                 mode=mode,
-                full_day_trading=True,  # Always True for 24h mode
+                full_day_trading=False,  # Always False for session mode
             )
             save_active_trade(at)
             return at

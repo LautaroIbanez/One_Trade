@@ -30,8 +30,8 @@ class TestFullDayForcedTrade(unittest.TestCase):
         extra_df = df_for(extra_index)
         return pd.concat([session_df, extra_df])
 
-    def test_forced_trade_24h_uses_next_day_candles(self):
-        # Build data with 24h session + 2h next day
+    def test_forced_trade_session_uses_exit_window(self):
+        # Build data with session + 2h next day for exit window
         date = datetime(2024, 1, 1, tzinfo=timezone.utc)
         day_slice = self._build_day_with_next_day(date, next_day_minutes=120)
 
@@ -42,7 +42,7 @@ class TestFullDayForcedTrade(unittest.TestCase):
             'adx_min': 15.0,
             'orb_window': (11, 12),
             'entry_window': (11, 13),
-            'full_day_trading': True,
+            'exit_window': (20, 22),
             'force_one_trade': True,
         }
 
@@ -50,17 +50,17 @@ class TestFullDayForcedTrade(unittest.TestCase):
         trades = strategy.process_day(day_slice, date.date())
 
         # Should produce one forced trade
-        self.assertTrue(len(trades) == 1, "Expected one forced trade in 24h mode")
+        self.assertTrue(len(trades) == 1, "Expected one forced trade in session mode")
         trade = trades[0]
         entry_time = pd.to_datetime(trade['entry_time'])
         exit_time = pd.to_datetime(trade['exit_time'])
 
-        # Verify exit evaluated using next-day candles and not immediate end_of_data
+        # Verify exit evaluated using exit window and not immediate end_of_data
         self.assertGreater(exit_time, entry_time, "exit_time should be after entry_time")
         self.assertNotEqual(trade['exit_reason'], 'end_of_data', "Should not exit due to immediate end of data")
 
     def test_forced_trade_not_immediate_close_first_bar(self):
-        # Build data with 24h session + 1h next day to ensure at least one bar exists after entry
+        # Build data with session + 1h next day to ensure at least one bar exists after entry
         date = datetime(2024, 1, 2, tzinfo=timezone.utc)
         day_slice = self._build_day_with_next_day(date, next_day_minutes=60)
 
@@ -71,7 +71,7 @@ class TestFullDayForcedTrade(unittest.TestCase):
             'adx_min': 15.0,
             'orb_window': (11, 12),
             'entry_window': (11, 13),
-            'full_day_trading': True,
+            'exit_window': (20, 22),
             'force_one_trade': True,
         }
 
@@ -84,7 +84,7 @@ class TestFullDayForcedTrade(unittest.TestCase):
 
         # It must not close on the same candle as entry due to lack of data
         self.assertGreater(exit_time, entry_time)
-        # And exit_reason should be either time_limit_24h or session_end depending on data, but not end_of_data
+        # And exit_reason should be session_close or session_end depending on data, but not end_of_data
         self.assertNotEqual(trade['exit_reason'], 'end_of_data')
 
     def test_ema15_fallback_handles_invalid_atr(self):
@@ -100,7 +100,6 @@ class TestFullDayForcedTrade(unittest.TestCase):
             'adx_min': 15.0,
             'orb_window': (11, 12),
             'entry_window': (11, 18),  # Use updated entry window
-            'full_day_trading': False,
             'force_one_trade': True,
         }
         
@@ -131,7 +130,6 @@ class TestFullDayForcedTrade(unittest.TestCase):
             'adx_min': 15.0,
             'orb_window': (11, 12),
             'entry_window': (11, 18),
-            'full_day_trading': False,
             'force_one_trade': True,
         }
         
@@ -204,7 +202,6 @@ class TestFullDayForcedTrade(unittest.TestCase):
             'adx_min': 15.0,
             'orb_window': (11, 12),
             'entry_window': (11, 18),
-            'full_day_trading': False,
             'force_one_trade': True,
         }
         

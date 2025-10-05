@@ -223,3 +223,57 @@ def is_orb_window(time_utc, start_hour=11, end_hour=12):
     else:
         hour = time_utc.time().hour
     return start_hour <= hour < end_hour
+
+
+def rsi(data, period=14, price_col='close'):
+    """Calculate Relative Strength Index."""
+    delta = data[price_col].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+
+def bollinger_bands(data, period=20, std_dev=2, price_col='close'):
+    """Calculate Bollinger Bands."""
+    sma = data[price_col].rolling(window=period).mean()
+    std = data[price_col].rolling(window=period).std()
+    
+    upper_band = sma + (std * std_dev)
+    lower_band = sma - (std * std_dev)
+    
+    return upper_band, sma, lower_band
+
+
+def heikin_ashi(data):
+    """Calculate Heikin Ashi candlesticks."""
+    ha_close = (data['open'] + data['high'] + data['low'] + data['close']) / 4
+    ha_open = pd.Series(index=data.index, dtype=float)
+    ha_open.iloc[0] = (data['open'].iloc[0] + data['close'].iloc[0]) / 2
+    
+    for i in range(1, len(data)):
+        ha_open.iloc[i] = (ha_open.iloc[i-1] + ha_close.iloc[i-1]) / 2
+    
+    ha_high = np.maximum(data['high'], np.maximum(ha_open, ha_close))
+    ha_low = np.minimum(data['low'], np.minimum(ha_open, ha_close))
+    
+    return pd.DataFrame({
+        'ha_open': ha_open,
+        'ha_high': ha_high,
+        'ha_low': ha_low,
+        'ha_close': ha_close
+    }, index=data.index)
+
+
+def macd(data, fast=12, slow=26, signal=9, price_col='close'):
+    """Calculate MACD (Moving Average Convergence Divergence)."""
+    ema_fast = ema(data, fast, price_col)
+    ema_slow = ema(data, slow, price_col)
+    
+    macd_line = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal).mean()
+    histogram = macd_line - signal_line
+    
+    return macd_line, signal_line, histogram
