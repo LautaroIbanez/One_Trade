@@ -577,6 +577,8 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                     print(f"⚠️ Error parsing exit_time in {path}: {e}")
             
             # Freshness validation via sidecar
+            is_stale = False
+            last_until = None
             try:
                 meta_base = path.with_suffix("")
                 meta_path = Path(str(meta_base) + "_meta.json")
@@ -602,12 +604,16 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                         # If no valid entry_time or empty, but sidecar covers today, accept empty file
                     # If no entry_time column but sidecar is fresh, accept the file
                 else:
-                    # Sidecar doesn't cover current session, reject
-                    print(f"⚠️ Stale sidecar ignored: {path} (last_until={last_until}, today={today_date})")
-                    continue
+                    # Sidecar doesn't cover current session, mark as stale but preserve data
+                    is_stale = True
+                    print(f"⚠️ Stale sidecar detected: {path} (last_until={last_until}, today={today_date}) - preserving data")
             except Exception as e:
                 print(f"⚠️ Freshness validation failed for {path}: {e}")
                 continue
+            
+            # Mark DataFrame as stale if needed
+            if is_stale and last_until is not None:
+                df.attrs["stale_last_until"] = last_until
             print(f"✅ Loaded trades from: {path} ({len(df)} rows)")
             # Times are already normalized above with tolerant parsing 
             # Filter by symbol if column exists and symbol provided
@@ -1001,21 +1007,34 @@ def create_app():
         except Exception:
             active_trade = None
         alert_msg = ""
-        # Read sidecar for last_backtest_until
-        try:
-            slug = symbol.replace('/', '_').replace(':', '_')
-            mode_suffix = (mode or "moderate").lower()
-            meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}").with_suffix("")
-            meta_path = Path(str(meta_path) + "_meta.json")
-            last_until = None
-            if meta_path.exists():
-                import json
-                meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                last_until = meta.get("last_backtest_until")
-        except Exception:
-            last_until = None
+        
+        # Check for stale data in the loaded trades
+        stale_last_until = None
+        if hasattr(trades, 'attrs') and "stale_last_until" in trades.attrs:
+            stale_last_until = trades.attrs["stale_last_until"]
+            alert_msg = f"Datos actualizados hasta {format_argentina_time(datetime.fromisoformat(stale_last_until), '%Y-%m-%d')}. Los datos pueden estar desactualizados."
+        
+        # Read sidecar for last_backtest_until (fallback if no stale attribute)
+        if stale_last_until is None:
+            try:
+                slug = symbol.replace('/', '_').replace(':', '_')
+                mode_suffix = (mode or "moderate").lower()
+                meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}").with_suffix("")
+                meta_path = Path(str(meta_path) + "_meta.json")
+                last_until = None
+                if meta_path.exists():
+                    import json
+                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    last_until = meta.get("last_backtest_until")
+            except Exception:
+                last_until = None
         mode_display = {"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or "moderate").lower(), (mode or "moderate").capitalize())
-        if trades.empty and active_trade is None:
+        
+        # Handle different alert scenarios
+        if stale_last_until is not None:
+            # Stale data warning takes precedence
+            pass  # alert_msg already set above
+        elif trades.empty and active_trade is None:
             # If last_backtest_until is today, clarify there were no trades
             today_iso = datetime.now(timezone.utc).date().isoformat()
             if last_until == today_iso:

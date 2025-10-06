@@ -546,3 +546,4 @@ def get_strategy_for_mode(mode: str, config: Dict) -> BaseStrategy:
     else:
         # Default to trend following
         return TrendFollowingStrategy(config)
+
