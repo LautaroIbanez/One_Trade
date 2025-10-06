@@ -3,8 +3,8 @@
   "side": "long",
   "entry_price": 123920.0,
   "stop_loss": 123844.04857142858,
-  "take_profit": 124033.92714285714,
+  "take_profit": 124071.90285714285,
   "entry_time": "2025-10-06T11:00:00+00:00",
-  "mode": "moderate",
+  "mode": "aggressive",
   "full_day_trading": false
 }

@@ -739,25 +739,66 @@ def invert_metrics(metrics: dict) -> dict:
     return inverted
 
 
-def compute_metrics(trades: pd.DataFrame, initial_capital: float = 1000.0, leverage: float = 1.0) -> dict:
+def compute_metrics_pure(trades: pd.DataFrame, initial_capital: float = 1000.0, leverage: float = 1.0, invertido: bool = False) -> dict:
+    """
+    Calcula métricas de performance de manera pura, con soporte para inversión.
+    
+    Args:
+        trades: DataFrame con datos de trades
+        initial_capital: Capital inicial
+        leverage: Apalancamiento
+        invertido: Si True, calcula métricas como si la estrategia estuviera invertida
+        
+    Returns:
+        Dict con métricas calculadas
+    """
     if trades.empty:
         return {
             "total_trades": 0, "win_rate": 0.0, "total_pnl": 0.0, "max_drawdown": 0.0, 
             "avg_risk_per_trade": 0.0, "dd_in_r": 0.0, "initial_capital": initial_capital,
-            "current_capital": initial_capital, "roi": 0.0, "leverage": leverage
+            "current_capital": initial_capital, "roi": 0.0, "leverage": leverage,
+            "profit_factor": 0.0, "expectancy": 0.0, "avg_pnl": 0.0, "best_trade": 0.0, "worst_trade": 0.0
         }
+    
     df = trades.copy()
     if "entry_time" in df.columns:
-        df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
+        df["entry_time"] = pd.to_datetime(df["entry_time"])
         df = df.sort_values(by="entry_time", ascending=True)
+    
+    # Aplicar inversión si está habilitada
+    if invertido:
+        df = invert_trades_dataframe(df)
+    
+    # Calcular métricas básicas
     df["cumulative_pnl"] = df["pnl_usdt"].cumsum()
     df["running_max"] = df["cumulative_pnl"].cummax()
     df["drawdown"] = df["cumulative_pnl"] - df["running_max"]
+    
     total_trades = len(df)
     wins = (df["pnl_usdt"] > 0).sum()
+    losses = (df["pnl_usdt"] < 0).sum()
     win_rate = (wins / total_trades) * 100 if total_trades else 0.0
+    
+    # Métricas monetarias
     total_pnl = float(df["pnl_usdt"].sum())
+    avg_pnl = float(df["pnl_usdt"].mean()) if total_trades else 0.0
+    best_trade = float(df["pnl_usdt"].max()) if total_trades else 0.0
+    worst_trade = float(df["pnl_usdt"].min()) if total_trades else 0.0
     max_drawdown = float(df["drawdown"].min()) if not df["drawdown"].empty else 0.0
+    
+    # Profit factor
+    gross_profit = float(df[df["pnl_usdt"] > 0]["pnl_usdt"].sum()) if wins > 0 else 0.0
+    gross_loss = abs(float(df[df["pnl_usdt"] < 0]["pnl_usdt"].sum())) if losses > 0 else 0.0
+    if gross_loss > 0:
+        profit_factor = gross_profit / gross_loss
+    elif gross_profit > 0:
+        profit_factor = float('inf')  # No losses, only profits
+    else:
+        profit_factor = 0.0  # No profits, no losses
+    
+    # Expectancy
+    expectancy = avg_pnl  # En este contexto, expectancy = promedio de PnL
+    
     # Risk per trade estimated from pnl_usdt and r_multiple
     risk_estimates = []
     if "r_multiple" in df.columns:
@@ -772,11 +813,29 @@ def compute_metrics(trades: pd.DataFrame, initial_capital: float = 1000.0, lever
     roi = (total_pnl / initial_capital) * 100 if initial_capital > 0 else 0.0
     
     return {
-        "total_trades": total_trades, "win_rate": win_rate, "total_pnl": total_pnl, 
-        "max_drawdown": max_drawdown, "avg_risk_per_trade": avg_risk, "dd_in_r": dd_in_r,
-        "initial_capital": initial_capital, "current_capital": current_capital, 
-        "roi": roi, "leverage": leverage
+        "total_trades": total_trades, 
+        "win_rate": win_rate, 
+        "total_pnl": total_pnl, 
+        "avg_pnl": avg_pnl,
+        "best_trade": best_trade,
+        "worst_trade": worst_trade,
+        "max_drawdown": max_drawdown, 
+        "avg_risk_per_trade": avg_risk, 
+        "dd_in_r": dd_in_r,
+        "initial_capital": initial_capital, 
+        "current_capital": current_capital, 
+        "roi": roi, 
+        "leverage": leverage,
+        "profit_factor": profit_factor,
+        "expectancy": expectancy
     }
+
+
+def compute_metrics(trades: pd.DataFrame, initial_capital: float = 1000.0, leverage: float = 1.0) -> dict:
+    """
+    Wrapper para mantener compatibilidad con código existente.
+    """
+    return compute_metrics_pure(trades, initial_capital, leverage, invertido=False)
 
 
 def figure_equity_curve(trades: pd.DataFrame):
@@ -1213,11 +1272,9 @@ def create_app():
 
         # Get effective configuration
         config = get_effective_config(symbol, mode or "moderate")
-        m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
         
-        # Apply inversion to metrics if enabled
-        if is_inverted:
-            m = invert_metrics(m)
+        # Use pure metrics calculation with inversion flag
+        m = compute_metrics_pure(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0), invertido=is_inverted)
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
             title_with_help = html.Div([
@@ -1259,6 +1316,8 @@ def create_app():
         win_rate_tooltip = "Porcentaje de operaciones perdedoras vs ganadoras (estrategia invertida)" if is_inverted else "Porcentaje de operaciones ganadoras vs perdedoras"
         dd_label = "Max Gain" if is_inverted else "Max DD"
         dd_tooltip = "Máxima ganancia desde un valle de capital (estrategia invertida)" if is_inverted else "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)"
+        pf_label = "Loss Factor" if is_inverted else "Profit Factor"
+        pf_tooltip = "Factor de pérdida (estrategia invertida)" if is_inverted else "Ratio entre ganancias brutas y pérdidas brutas"
         
         metrics_children = dbc.Row([
             kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection", 
@@ -1269,8 +1328,8 @@ def create_app():
                     "Ganancia o pérdida total en USDT", "tooltip-pnl"),
             kpi_card(dd_label, f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down", 
                     dd_tooltip, "tooltip-dd"),
-            kpi_card("Riesgo/trade", f"{m['avg_risk_per_trade']:.2f} USDT", "info", "bi-shield", 
-                    "Promedio de riesgo por operación en USDT", "tooltip-risk"),
+            kpi_card(pf_label, f"{m['profit_factor']:.2f}", "info", "bi-calculator", 
+                    pf_tooltip, "tooltip-pf"),
             kpi_card("ROI", f"{m['roi']:+.1f}%", roi_color, "bi-graph-up", 
                     "Retorno sobre inversión inicial", "tooltip-roi"),
         ], className="g-3")
