@@ -632,6 +632,113 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
     return pd.DataFrame()
 
 
+def invert_trade(trade: dict) -> dict:
+    """
+    Invert a single trade by flipping direction and PnL.
+    
+    Args:
+        trade: Dictionary containing trade data
+        
+    Returns:
+        Dictionary with inverted trade data
+    """
+    inverted = trade.copy()
+    
+    # Invert side
+    if "side" in inverted:
+        if inverted["side"].lower() == "long":
+            inverted["side"] = "short"
+        elif inverted["side"].lower() == "short":
+            inverted["side"] = "long"
+    
+    # Invert PnL
+    if "pnl_usdt" in inverted and inverted["pnl_usdt"] is not None:
+        inverted["pnl_usdt"] = -inverted["pnl_usdt"]
+    
+    # Invert R-multiple
+    if "r_multiple" in inverted and inverted["r_multiple"] is not None:
+        inverted["r_multiple"] = -inverted["r_multiple"]
+    
+    # Invert exit reason if applicable
+    if "exit_reason" in inverted:
+        if inverted["exit_reason"] == "take_profit":
+            inverted["exit_reason"] = "stop_loss"
+        elif inverted["exit_reason"] == "stop_loss":
+            inverted["exit_reason"] = "take_profit"
+    
+    return inverted
+
+
+def invert_trades_dataframe(trades: pd.DataFrame) -> pd.DataFrame:
+    """
+    Invert all trades in a DataFrame.
+    
+    Args:
+        trades: DataFrame containing trade data
+        
+    Returns:
+        DataFrame with all trades inverted
+    """
+    if trades.empty:
+        return trades.copy()
+    
+    df = trades.copy()
+    
+    # Invert side
+    if "side" in df.columns:
+        df["side"] = df["side"].apply(lambda x: "short" if x.lower() == "long" else "long" if x.lower() == "short" else x)
+    
+    # Invert PnL
+    if "pnl_usdt" in df.columns:
+        df["pnl_usdt"] = -df["pnl_usdt"]
+    
+    # Invert R-multiple
+    if "r_multiple" in df.columns:
+        df["r_multiple"] = -df["r_multiple"]
+    
+    # Invert exit reason
+    if "exit_reason" in df.columns:
+        df["exit_reason"] = df["exit_reason"].apply(
+            lambda x: "stop_loss" if x == "take_profit" else "take_profit" if x == "stop_loss" else x
+        )
+    
+    return df
+
+
+def invert_metrics(metrics: dict) -> dict:
+    """
+    Invert performance metrics to reflect strategy inversion.
+    
+    Args:
+        metrics: Dictionary containing performance metrics
+        
+    Returns:
+        Dictionary with inverted metrics
+    """
+    inverted = metrics.copy()
+    
+    # Invert PnL-related metrics
+    if "total_pnl" in inverted:
+        inverted["total_pnl"] = -inverted["total_pnl"]
+    
+    if "current_capital" in inverted and "initial_capital" in inverted:
+        # Recalculate current capital with inverted PnL
+        inverted["current_capital"] = inverted["initial_capital"] + inverted["total_pnl"]
+    
+    if "roi" in inverted:
+        inverted["roi"] = -inverted["roi"]
+    
+    # Invert drawdown (max drawdown becomes max gain)
+    if "max_drawdown" in inverted:
+        inverted["max_drawdown"] = -inverted["max_drawdown"]
+    
+    # Win rate becomes loss rate (100 - win_rate)
+    if "win_rate" in inverted:
+        inverted["win_rate"] = 100.0 - inverted["win_rate"]
+    
+    return inverted
+
+
 def compute_metrics(trades: pd.DataFrame, initial_capital: float = 1000.0, leverage: float = 1.0) -> dict:
     if trades.empty:
         return {
@@ -823,6 +930,15 @@ def create_app():
             dbc.Collapse(dbc.Row([
                 dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
+                dbc.Col([
+                    dbc.Switch(
+                        id="invert-strategy-switch",
+                        label="Invertir Estrategia",
+                        value=False,
+                        className="me-2"
+                    ),
+                    html.Small("Mostrar datos invertidos", className="text-white-50 d-block")
+                ], md="auto", className="me-3"),
                 dbc.Col(dbc.Button("Refrescar", id="refresh", color="primary", className="text-white"), md="auto"),
             ], align="center", className="g-2"), id="navbar-collapse", is_open=True)
         ]), color="dark", dark=True, className="mb-3"
@@ -830,10 +946,18 @@ def create_app():
 
     app.layout = dbc.Container([
         navbar,
+        
+        # Store for inversion state
+        dcc.Store(id="inversion-state", data={"inverted": False}),
 
         # Strategy Description Panel
         dbc.Card([
-            dbc.CardHeader("Estrategia Actual", id="strategy-header"),
+            dbc.CardHeader([
+                html.Div([
+                    html.Span("Estrategia Actual", id="strategy-header"),
+                    dbc.Badge("INVERTIDA", color="warning", className="ms-2", id="inversion-badge", style={"display": "none"})
+                ], className="d-flex align-items-center")
+            ]),
             dbc.CardBody([
                 dbc.Row([
                     dbc.Col([
@@ -922,6 +1046,14 @@ def create_app():
     ], fluid=True)
 
     @app.callback(
+        Output("inversion-state", "data"),
+        Input("invert-strategy-switch", "value"),
+    )
+    def update_inversion_state(invert_switch):
+        """Update inversion state when switch is toggled."""
+        return {"inverted": invert_switch}
+
+    @app.callback(
         Output("symbol-dropdown", "options"),
         Output("symbol-dropdown", "value"),
         Output("strategy-header", "children"),
@@ -929,12 +1061,17 @@ def create_app():
         Output("strategy-tools", "children"),
         Output("strategy-rules", "children"),
         Output("strategy-risk-profile", "children"),
+        Output("inversion-badge", "style"),
         Input("investment-mode", "value"),
+        Input("inversion-state", "data"),
     )
-    def update_strategy_panel(mode):
+    def update_strategy_panel(mode, inversion_state):
         """Update strategy panel and symbol dropdown based on selected mode."""
         if not mode:
             mode = "moderate"
+        
+        # Extract inversion state
+        is_inverted = inversion_state.get("inverted", False) if inversion_state else False
         
         # Get symbols for the mode
         symbols = get_symbols_for_mode(mode)
@@ -950,6 +1087,9 @@ def create_app():
         # Create rules list
         rules_list = [html.Li(rule) for rule in strategy_info["rules"]]
         
+        # Show/hide inversion badge
+        badge_style = {"display": "block"} if is_inverted else {"display": "none"}
+        
         return (
             symbol_options,
             default_symbol,
@@ -957,7 +1097,8 @@ def create_app():
             strategy_info["description"],
             tools_list,
             rules_list,
-            strategy_info["risk_profile"]
+            strategy_info["risk_profile"],
+            badge_style
         )
 
     @app.callback(
@@ -977,10 +1118,14 @@ def create_app():
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
+        Input("inversion-state", "data"),
         prevent_initial_call=False,
     )
-    def update_dashboard(symbol, n_clicks, mode):
+    def update_dashboard(symbol, n_clicks, mode, inversion_state):
         symbol = (symbol or "BTC/USDT:USDT").strip()
+        
+        # Extract inversion state
+        is_inverted = inversion_state.get("inverted", False) if inversion_state else False
         
         # Fetch latest price
         price_info = None
@@ -999,11 +1144,31 @@ def create_app():
         
         # Load updated trades
         trades = load_trades(symbol, mode or "moderate")
+        
+        # Apply inversion if enabled
+        if is_inverted and not trades.empty:
+            trades = invert_trades_dataframe(trades)
+        
         # Load active trade if any to reflect in UI
         active_trade = None
         try:
             from btc_1tpd_backtester.live_monitor import load_active_trade
             active_trade = load_active_trade()
+            # Apply inversion to active trade if enabled
+            if is_inverted and active_trade is not None:
+                active_trade_dict = {
+                    "side": active_trade.side,
+                    "entry_price": active_trade.entry_price,
+                    "stop_loss": active_trade.stop_loss,
+                    "take_profit": active_trade.take_profit,
+                    "entry_time": active_trade.entry_time
+                }
+                inverted_active = invert_trade(active_trade_dict)
+                # Update active_trade object with inverted values
+                active_trade.side = inverted_active["side"]
+                active_trade.entry_price = inverted_active["entry_price"]
+                active_trade.stop_loss = inverted_active["stop_loss"]
+                active_trade.take_profit = inverted_active["take_profit"]
         except Exception:
             active_trade = None
         alert_msg = ""
@@ -1049,6 +1214,10 @@ def create_app():
         # Get effective configuration
         config = get_effective_config(symbol, mode or "moderate")
         m = compute_metrics(trades, config.get('initial_capital', 1000.0), config.get('leverage', 1.0))
+        
+        # Apply inversion to metrics if enabled
+        if is_inverted:
+            m = invert_metrics(m)
         def kpi_card(title: str, value: str, color: str, icon: str, description: str = None, tooltip_id: str = None):
             help_icon = html.I(className="bi bi-question-circle ms-1 text-muted", id=tooltip_id) if description else None
             title_with_help = html.Div([
@@ -1072,20 +1241,34 @@ def create_app():
             else:
                 return dbc.Col(card_content, md=3, sm=6, xs=12)
 
-        win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
-        pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
-        dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
-        roi_color = "success" if m['roi'] >= 0 else "danger"
+        # Adjust colors and labels based on inversion state
+        if is_inverted:
+            # In inverted mode, win_rate is actually loss rate, so we want high "loss rate" to be good
+            win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
+            pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
+            dd_color = "success" if m['max_drawdown'] > 0 else "secondary"  # Inverted: positive drawdown is good
+            roi_color = "success" if m['roi'] >= 0 else "danger"
+        else:
+            win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
+            pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
+            dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
+            roi_color = "success" if m['roi'] >= 0 else "danger"
 
+        # Adjust labels based on inversion state
+        win_rate_label = "Loss rate" if is_inverted else "Win rate"
+        win_rate_tooltip = "Porcentaje de operaciones perdedoras vs ganadoras (estrategia invertida)" if is_inverted else "Porcentaje de operaciones ganadoras vs perdedoras"
+        dd_label = "Max Gain" if is_inverted else "Max DD"
+        dd_tooltip = "Máxima ganancia desde un valle de capital (estrategia invertida)" if is_inverted else "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)"
+        
         metrics_children = dbc.Row([
             kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection", 
                     "Número total de operaciones ejecutadas", "tooltip-trades"),
-            kpi_card("Win rate", f"{m['win_rate']:.1f}%", win_color, "bi-bullseye", 
-                    "Porcentaje de operaciones ganadoras vs perdedoras", "tooltip-winrate"),
+            kpi_card(win_rate_label, f"{m['win_rate']:.1f}%", win_color, "bi-bullseye", 
+                    win_rate_tooltip, "tooltip-winrate"),
             kpi_card("PnL", f"{m['total_pnl']:+,.2f} USDT", pnl_color, "bi-cash-stack", 
                     "Ganancia o pérdida total en USDT", "tooltip-pnl"),
-            kpi_card("Max DD", f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down", 
-                    "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)", "tooltip-dd"),
+            kpi_card(dd_label, f"{m['max_drawdown']:.2f} USDT ({m['dd_in_r']:.2f} R)", dd_color, "bi-graph-down", 
+                    dd_tooltip, "tooltip-dd"),
             kpi_card("Riesgo/trade", f"{m['avg_risk_per_trade']:.2f} USDT", "info", "bi-shield", 
                     "Promedio de riesgo por operación en USDT", "tooltip-risk"),
             kpi_card("ROI", f"{m['roi']:+.1f}%", roi_color, "bi-graph-up", 
@@ -1131,6 +1314,7 @@ def create_app():
 
         # Today recommendation via live monitor
         reco_children = html.Div("Se requiere módulo de señales.")
+        strategy_signal = None
         try:
             from btc_1tpd_backtester.live_monitor import detect_or_update_active_trade
             merged_cfg = get_effective_config(symbol, mode)
@@ -1142,10 +1326,19 @@ def create_app():
                 stop_loss = getattr(active_or_rec, 'stop_loss', None) or (active_or_rec.get('stop_loss') if isinstance(active_or_rec, dict) else None)
                 take_profit = getattr(active_or_rec, 'take_profit', None) or (active_or_rec.get('take_profit') if isinstance(active_or_rec, dict) else None)
                 entry_time_val = getattr(active_or_rec, 'entry_time', None) or (active_or_rec.get('entry_time') if isinstance(active_or_rec, dict) else None)
-                badge_color = "secondary" if not side else ("success" if side == "long" else "danger")
+                
+                # Store original signal for validation
+                strategy_signal = side
+                
+                # Apply inversion to display if enabled
+                display_side = side
+                if is_inverted and side:
+                    display_side = "short" if side.lower() == "long" else "long"
+                
+                badge_color = "secondary" if not display_side else ("success" if display_side == "long" else "danger")
                 reco_children = html.Div([
                     html.Div([html.B("Símbolo: "), html.Span(symbol)]),
-                    html.Div([html.B("Dirección: "), dbc.Badge((side or "-").lower(), color=badge_color, className="ms-1")]),
+                    html.Div([html.B("Dirección: "), dbc.Badge((display_side or "-").lower(), color=badge_color, className="ms-1")]),
                     html.Div([html.B("Hora entrada: "), format_argentina_time(entry_time_val, "%H:%M:%S %Z") if entry_time_val else "-"]),
                     html.Div([html.B("Entrada: "), f"{entry_price if entry_price is not None else '-'}"]),
                     html.Div([html.B("SL: "), f"{stop_loss if stop_loss is not None else '-'}"]),
@@ -1153,6 +1346,25 @@ def create_app():
                 ])
         except Exception:
             pass
+        
+        # Validate daily trade vs strategy signal
+        validation_alert = ""
+        if strategy_signal and not trades.empty and "side" in trades.columns:
+            # Get the most recent trade
+            recent_trade = trades.iloc[0] if len(trades) > 0 else None
+            if recent_trade is not None:
+                recent_side = recent_trade.get("side")
+                if recent_side:
+                    # Compare original signals (not inverted for display)
+                    if strategy_signal.lower() != recent_side.lower():
+                        validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+        
+        # Update alert message to include validation
+        if validation_alert:
+            if alert_msg:
+                alert_msg = f"{alert_msg} | {validation_alert}"
+            else:
+                alert_msg = validation_alert
 
         # Current price display
         if price_info and price_info.get('price'):
