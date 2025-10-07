@@ -8,11 +8,20 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import sys
+import time
+import logging
 try:
     from zoneinfo import ZoneInfo
 except ImportError:
     # Fallback for Python < 3.9
     from backports.zoneinfo import ZoneInfo
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Paths (ensure imports work when running from webapp/)
 base_dir = Path(__file__).resolve().parent
@@ -205,6 +214,41 @@ def get_effective_config(symbol: str, mode: str) -> dict:
     return config
 
 
+def retry_with_backoff(func, max_retries=3, initial_delay=1.0, backoff_factor=2.0, exception_types=(Exception,)):
+    """
+    Retry a function with exponential backoff.
+    
+    Args:
+        func: Function to retry (should be a callable)
+        max_retries: Maximum number of retry attempts
+        initial_delay: Initial delay in seconds before first retry
+        backoff_factor: Factor to multiply delay by after each retry
+        exception_types: Tuple of exception types to catch and retry
+    
+    Returns:
+        Result of successful function call
+        
+    Raises:
+        Last exception if all retries fail
+    """
+    delay = initial_delay
+    last_exception = None
+    
+    for attempt in range(max_retries + 1):
+        try:
+            return func()
+        except exception_types as e:
+            last_exception = e
+            if attempt < max_retries:
+                logger.warning(f"Attempt {attempt + 1}/{max_retries + 1} failed: {str(e)}. Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                delay *= backoff_factor
+            else:
+                logger.error(f"All {max_retries + 1} attempts failed. Last error: {str(e)}")
+    
+    raise last_exception
+
+
 # Timezone helper
 ARGENTINA_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
@@ -358,19 +402,43 @@ def refresh_trades(symbol: str, mode: str) -> str:
         
         # Merge base and mode config
         config = get_effective_config(symbol, mode)
-        print(f"📊 Effective config for {symbol} {mode}: {config}")
+        logger.info(f"📊 Effective config for {symbol} {mode}: {config}")
         
-        # Run backtest
-        results = run_backtest(symbol, since, until, config)
+        # Run backtest with retry logic for network errors
+        results = None
+        error_type = None
+        error_detail = None
+        
+        try:
+            def run_backtest_with_params():
+                return run_backtest(symbol, since, until, config)
+            
+            # Retry with backoff for common transient errors
+            results = retry_with_backoff(
+                run_backtest_with_params,
+                max_retries=3,
+                initial_delay=2.0,
+                backoff_factor=2.0,
+                exception_types=(ConnectionError, TimeoutError, OSError)
+            )
+            logger.info(f"✅ Backtest completed successfully for {symbol} {mode}")
+        except (ConnectionError, TimeoutError, OSError) as e:
+            error_type = "network"
+            error_detail = str(e)
+            logger.error(f"🔴 Network error after retries: {error_detail}")
+        except Exception as e:
+            error_type = "general"
+            error_detail = str(e)
+            logger.error(f"🔴 Backtest error: {error_detail}")
         
         # Extract trades DataFrame from results
         trades_df = results.trades_df if results is not None else pd.DataFrame()
         
-        # Check if strategy is suitable
-        if not results.is_strategy_suitable():
-            print("\n⚠️ WARNING: Strategy failed validation criteria!")
-            print("Consider adjusting parameters or strategy configuration.")
-            print(f"Validation summary: {results.get_validation_summary()}")
+        # Check if strategy is suitable (only if we have results)
+        if results is not None and not results.is_strategy_suitable():
+            logger.warning("\n⚠️ WARNING: Strategy failed validation criteria!")
+            logger.warning("Consider adjusting parameters or strategy configuration.")
+            logger.warning(f"Validation summary: {results.get_validation_summary()}")
 
         # Sync with live active trade state
         try:
@@ -473,7 +541,9 @@ def refresh_trades(symbol: str, mode: str) -> str:
         
         # Save combined DataFrame
         combined.to_csv(filename, index=False)
+        
         # Write sidecar meta with last_backtest_until, symbol, mode, full_day_trading and last_trade_date
+        # IMPORTANT: Always update meta.json even if there were errors, to mark that we attempted an update
         try:
             import json as _json
             base_no_ext = filename.with_suffix("")
@@ -492,21 +562,39 @@ def refresh_trades(symbol: str, mode: str) -> str:
             meta_payload = {
                 "last_backtest_until": until,
                 "last_trade_date": last_trade_date,  # Last actual trade date
+                "last_update_attempt": datetime.now(timezone.utc).isoformat(),  # Track when we last tried
                 "symbol": symbol,
                 "mode": mode,
                 "full_day_trading": config.get("full_day_trading", False),
                 "session_trading": config.get("session_trading", True),
-                "validation_results": results.validation_results if 'results' in locals() else None,
-                "is_strategy_suitable": results.is_strategy_suitable() if 'results' in locals() else None,
+                "validation_results": results.validation_results if results is not None else None,
+                "is_strategy_suitable": results.is_strategy_suitable() if results is not None else None,
                 "backtest_start_date": (start_override or default_since),
+                "last_error": None if error_type is None else {
+                    "type": error_type,
+                    "detail": error_detail,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
             }
             sidecar_out.write_text(_json.dumps(meta_payload, indent=2, ensure_ascii=False))
+            logger.info(f"✅ Updated meta.json for {symbol} {mode}")
         except Exception as e:
-            print(f"⚠️ Could not write sidecar meta: {e}")
-        print(f"✅ Saved {len(combined)} total trades to {filename}")
-        return f"OK: Saved {len(combined)} total trades to {filename} (since {since} until {until})"
+            logger.error(f"⚠️ Could not write sidecar meta: {e}")
+        
+        logger.info(f"✅ Saved {len(combined)} total trades to {filename}")
+        
+        # Construct detailed return message based on outcome
+        if error_type == "network":
+            return f"WARNING: Network error after retries ({error_detail}). Data refreshed to {until} but may be incomplete. Check your internet connection."
+        elif error_type == "general":
+            return f"ERROR: Backtest failed ({error_detail}). Data refreshed to {until} but may be incomplete."
+        elif len(trades_df) == 0 and results is not None:
+            return f"OK: No new trades generated (since {since} until {until}). Total: {len(combined)} trades."
+        else:
+            return f"OK: Saved {len(combined)} total trades to {filename} (since {since} until {until})"
             
     except Exception as e:
+        logger.exception(f"❌ Critical error in refresh_trades for {symbol} {mode}")
         return f"ERROR: refresh_trades failed for {symbol} {mode}: {str(e)}"
 
 
@@ -1333,26 +1421,52 @@ def create_app():
             active_trade = None
         alert_msg = ""
         
-        # Check for stale data in the loaded trades
+        # Check for stale data in the loaded trades and read meta file
         stale_last_until = None
+        last_error_info = None
+        last_update_attempt = None
+        
         if hasattr(trades, 'attrs') and "stale_last_until" in trades.attrs:
             stale_last_until = trades.attrs["stale_last_until"]
-            alert_msg = f"Datos actualizados hasta {format_argentina_time(datetime.fromisoformat(stale_last_until), '%Y-%m-%d')}. Los datos pueden estar desactualizados."
         
-        # Read sidecar for last_backtest_until (fallback if no stale attribute)
-        if stale_last_until is None:
-            try:
-                slug = symbol.replace('/', '_').replace(':', '_')
-                mode_suffix = (mode or "moderate").lower()
-                meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}").with_suffix("")
-                meta_path = Path(str(meta_path) + "_meta.json")
-                last_until = None
-                if meta_path.exists():
-                    import json
-                    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-                    last_until = meta.get("last_backtest_until")
-            except Exception:
-                last_until = None
+        # Read sidecar for last_backtest_until and error info
+        try:
+            slug = symbol.replace('/', '_').replace(':', '_')
+            mode_suffix = (mode or "moderate").lower()
+            meta_path = (repo_root / "data" / f"trades_final_{slug}_{mode_suffix}").with_suffix("")
+            meta_path = Path(str(meta_path) + "_meta.json")
+            last_until = None
+            if meta_path.exists():
+                import json
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                last_until = meta.get("last_backtest_until")
+                last_error_info = meta.get("last_error")
+                last_update_attempt = meta.get("last_update_attempt")
+                
+                # If no stale attribute from load_trades, check freshness here
+                if stale_last_until is None and last_until:
+                    today_iso = datetime.now(timezone.utc).date().isoformat()
+                    if last_until < today_iso:
+                        stale_last_until = last_until
+        except Exception:
+            last_until = None
+            last_error_info = None
+            last_update_attempt = None
+        
+        # Construct detailed alert message based on stale data and errors
+        if stale_last_until is not None:
+            alert_msg = f"⚠️ Datos actualizados hasta {format_argentina_time(datetime.fromisoformat(stale_last_until), '%Y-%m-%d')}. "
+            
+            if last_error_info:
+                error_type = last_error_info.get('type')
+                error_detail = last_error_info.get('detail', 'Unknown error')
+                
+                if error_type == 'network':
+                    alert_msg += f"Último error: Problema de conexión ({error_detail[:100]}). Verifica tu conexión a internet y presiona 'Refrescar'."
+                else:
+                    alert_msg += f"Último error: {error_detail[:150]}. Presiona 'Refrescar' para reintentar."
+            else:
+                alert_msg += "Presiona 'Refrescar' para actualizar los datos."
         mode_display = {"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or "moderate").lower(), (mode or "moderate").capitalize())
         
         # Handle different alert scenarios
@@ -1523,13 +1637,15 @@ def create_app():
             else:
                 alert_msg = validation_alert
         
-        # Determine alert color based on content
+        # Determine alert color based on content and error type
         alert_color = "warning"
-        if "Error" in alert_msg or "Inconsistencia" in alert_msg:
+        if last_error_info and last_error_info.get('type') == 'network':
+            alert_color = "danger"  # Network errors are critical
+        elif "Error" in alert_msg or "Inconsistencia" in alert_msg:
             alert_color = "danger"
         elif "Operación activa" in alert_msg:
             alert_color = "info"
-        elif "Actualizado" in alert_msg and "No hubo" not in alert_msg:
+        elif "Actualizado" in alert_msg and "No hubo" not in alert_msg and stale_last_until is None:
             alert_color = "success"
 
         # Hero Section - Price and Symbol

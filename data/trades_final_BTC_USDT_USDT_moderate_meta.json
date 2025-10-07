@@ -1,8 +1,17 @@
 {
-  "last_backtest_until": "2025-10-03",
-  "last_trade_date": "2025-10-03",
+  "last_backtest_until": "2025-10-07",
+  "last_trade_date": "2025-10-07",
+  "last_update_attempt": "2025-10-07T21:18:03.188733+00:00",
   "symbol": "BTC/USDT:USDT",
   "mode": "moderate",
-  "full_day_trading": true,
-  "backtest_start_date": "2025-09-03"
+  "full_day_trading": false,
+  "session_trading": true,
+  "validation_results": null,
+  "is_strategy_suitable": null,
+  "backtest_start_date": "2025-09-07",
+  "last_error": {
+    "type": "general",
+    "detail": "'close'",
+    "timestamp": "2025-10-07T21:18:03.188733+00:00"
+  }
 }
