@@ -928,7 +928,7 @@ def figure_win_loss(trades: pd.DataFrame):
     return fig
 
 
-def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "1h"):
+def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "1h", today_recommendation: dict = None):
     if trades.empty or fetch_historical_data is None:
         return go.Figure()
     try:
@@ -947,6 +947,26 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
         price = price.copy()
         price = price.reset_index().rename(columns={"timestamp": "time"}) if "timestamp" in price.columns else price.reset_index(names=["time"]) 
         fig = px.line(price, x="time", y="close", title=f"{symbol} Price with Trades")
+        
+        # Add horizontal lines for today's recommendation levels
+        if today_recommendation:
+            entry_price = today_recommendation.get('entry_price')
+            stop_loss = today_recommendation.get('stop_loss')
+            take_profit = today_recommendation.get('take_profit')
+            side = today_recommendation.get('side', '').lower()
+            
+            # Determine colors based on side
+            entry_color = "blue"
+            sl_color = "red"
+            tp_color = "green"
+            
+            if entry_price:
+                fig.add_hline(y=entry_price, line_dash="dot", line_color=entry_color, line_width=2, annotation_text=f"Entry: ${entry_price:,.2f}", annotation_position="right")
+            if stop_loss:
+                fig.add_hline(y=stop_loss, line_dash="dot", line_color=sl_color, line_width=2, annotation_text=f"SL: ${stop_loss:,.2f}", annotation_position="right")
+            if take_profit:
+                fig.add_hline(y=take_profit, line_dash="dot", line_color=tp_color, line_width=2, annotation_text=f"TP: ${take_profit:,.2f}", annotation_position="right")
+        
         # entries separated by side
         if "side" in df.columns:
             longs = df[df["side"].str.lower() == "long"]
@@ -1010,44 +1030,101 @@ def create_app():
         
         # Store for inversion state
         dcc.Store(id="inversion-state", data={"inverted": False}),
+        
+        # Hero Section - Daily Price Dashboard
+        dbc.Card([
+            dbc.CardBody([
+                dbc.Row([
+                    # Main Price Display
+                    dbc.Col([
+                        html.Div([
+                            html.Small(id="hero-symbol", className="text-muted mb-1"),
+                            html.H1(id="hero-price", className="display-3 fw-bold text-primary mb-0"),
+                            html.Div([
+                                html.Span(id="hero-change", className="fs-5 me-2"),
+                                html.Span(id="hero-change-pct", className="fs-5")
+                            ], className="d-flex align-items-center mt-1")
+                        ])
+                    ], md=4, sm=12, className="text-center text-md-start mb-3 mb-md-0"),
+                    
+                    # Trading Session Info
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Ventana de Entrada", className="text-muted mb-2"),
+                                html.H5(id="hero-entry-window", className="mb-0"),
+                                html.Small(id="hero-session-status", className="text-muted")
+                            ], className="py-2")
+                        ], className="h-100", color="light")
+                    ], md=3, sm=6, xs=12, className="mb-3 mb-md-0"),
+                    
+                    # Risk & Mode Info
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Riesgo por Trade", className="text-muted mb-2"),
+                                html.H5(id="hero-risk", className="mb-0"),
+                                html.Small(id="hero-mode", className="text-muted")
+                            ], className="py-2")
+                        ], className="h-100", color="light")
+                    ], md=3, sm=6, xs=12, className="mb-3 mb-md-0"),
+                    
+                    # Active Trade Indicator
+                    dbc.Col([
+                        dbc.Card([
+                            dbc.CardBody([
+                                html.H6("Estado", className="text-muted mb-2"),
+                                html.H5(id="hero-active-trade", className="mb-0"),
+                                dbc.Badge(id="hero-inversion-badge", children="INVERTIDA", color="warning", className="mt-1", style={"display": "none"})
+                            ], className="py-2")
+                        ], className="h-100", color="light")
+                    ], md=2, sm=12, xs=12)
+                ], className="g-3")
+            ], className="py-3")
+        ], className="mb-4 shadow-sm"),
 
-        # Strategy Description Panel
+        # Alert Section
+        dbc.Alert(id="alert", is_open=False, color="warning", className="mb-4"),
+
+        # Today's Recommendation - Compact Display
+        dbc.Card([
+            dbc.CardHeader([
+                html.I(className="bi bi-lightbulb-fill me-2"),
+                html.Span("Recomendación de Hoy")
+            ]),
+            dbc.CardBody(id="today-reco"),
+        ], className="mb-4"),
+        
+        # Strategy Description Panel - Collapsible
         dbc.Card([
             dbc.CardHeader([
                 html.Div([
-                    html.Span("Estrategia Actual", id="strategy-header"),
+                    html.Button([
+                        html.I(className="bi bi-info-circle me-2"),
+                        html.Span("Estrategia Actual", id="strategy-header")
+                    ], className="btn btn-link text-decoration-none text-dark p-0", id="strategy-collapse-button"),
                     dbc.Badge("INVERTIDA", color="warning", className="ms-2", id="inversion-badge", style={"display": "none"})
                 ], className="d-flex align-items-center")
             ]),
-            dbc.CardBody([
-                dbc.Row([
-                    dbc.Col([
-                        html.H6("Descripción:", className="fw-bold"),
-                        html.P(id="strategy-description"),
-                        html.H6("Herramientas:", className="fw-bold mt-3"),
-                        html.Ul(id="strategy-tools"),
-                    ], md=6),
-                    dbc.Col([
-                        html.H6("Reglas:", className="fw-bold"),
-                        html.Ul(id="strategy-rules"),
-                        html.H6("Perfil de Riesgo:", className="fw-bold mt-3"),
-                        html.P(id="strategy-risk-profile", className="text-muted"),
-                    ], md=6),
+            dbc.Collapse([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Descripción:", className="fw-bold"),
+                            html.P(id="strategy-description"),
+                            html.H6("Herramientas:", className="fw-bold mt-3"),
+                            html.Ul(id="strategy-tools"),
+                        ], md=6),
+                        dbc.Col([
+                            html.H6("Reglas:", className="fw-bold"),
+                            html.Ul(id="strategy-rules"),
+                            html.H6("Perfil de Riesgo:", className="fw-bold mt-3"),
+                            html.P(id="strategy-risk-profile", className="text-muted"),
+                        ], md=6),
+                    ])
                 ])
-            ])
+            ], id="strategy-collapse", is_open=False)
         ], className="mb-4", id="strategy-panel"),
-
-        dbc.Alert(id="alert", is_open=False, color="warning"),
-
-        dbc.Card([
-            dbc.CardHeader("Precio Actual"),
-            dbc.CardBody(id="current-price"),
-        ], className="mb-4"),
-
-        dbc.Card([
-            dbc.CardHeader("Recomendación de hoy"),
-            dbc.CardBody(id="today-reco"),
-        ], className="mb-4"),
 
         dbc.Card([
             dbc.CardHeader("Métricas"),
@@ -1113,6 +1190,18 @@ def create_app():
     def update_inversion_state(invert_switch):
         """Update inversion state when switch is toggled."""
         return {"inverted": invert_switch}
+    
+    @app.callback(
+        Output("strategy-collapse", "is_open"),
+        Input("strategy-collapse-button", "n_clicks"),
+        State("strategy-collapse", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_strategy_collapse(n_clicks, is_open):
+        """Toggle strategy panel collapse."""
+        if n_clicks:
+            return not is_open
+        return is_open
 
     @app.callback(
         Output("symbol-dropdown", "options"),
@@ -1163,7 +1252,17 @@ def create_app():
         )
 
     @app.callback(
-        Output("current-price", "children"),
+        Output("hero-symbol", "children"),
+        Output("hero-price", "children"),
+        Output("hero-change", "children"),
+        Output("hero-change", "className"),
+        Output("hero-change-pct", "children"),
+        Output("hero-entry-window", "children"),
+        Output("hero-session-status", "children"),
+        Output("hero-risk", "children"),
+        Output("hero-mode", "children"),
+        Output("hero-active-trade", "children"),
+        Output("hero-inversion-badge", "style"),
         Output("today-reco", "children"),
         Output("metrics", "children"),
         Output("equity-fig", "figure"),
@@ -1176,6 +1275,7 @@ def create_app():
         Output("trades-table", "data"),
         Output("alert", "is_open"),
         Output("alert", "children"),
+        Output("alert", "color"),
         Input("symbol-dropdown", "value"),
         Input("refresh", "n_clicks"),
         Input("investment-mode", "value"),
@@ -1362,6 +1462,7 @@ def create_app():
         # Today recommendation via live monitor
         reco_children = html.Div("Se requiere módulo de señales.")
         strategy_signal = None
+        today_recommendation = None
         try:
             from btc_1tpd_backtester.live_monitor import detect_or_update_active_trade
             merged_cfg = get_effective_config(symbol, mode)
@@ -1376,6 +1477,15 @@ def create_app():
                 
                 # Store original signal for validation
                 strategy_signal = side
+                
+                # Build today_recommendation dictionary for price chart levels
+                today_recommendation = {
+                    'side': side,
+                    'entry_price': entry_price,
+                    'stop_loss': stop_loss,
+                    'take_profit': take_profit,
+                    'entry_time': entry_time_val
+                }
                 
                 # Apply inversion to display if enabled
                 display_side = side
@@ -1412,29 +1522,72 @@ def create_app():
                 alert_msg = f"{alert_msg} | {validation_alert}"
             else:
                 alert_msg = validation_alert
+        
+        # Determine alert color based on content
+        alert_color = "warning"
+        if "Error" in alert_msg or "Inconsistencia" in alert_msg:
+            alert_color = "danger"
+        elif "Operación activa" in alert_msg:
+            alert_color = "info"
+        elif "Actualizado" in alert_msg and "No hubo" not in alert_msg:
+            alert_color = "success"
 
-        # Current price display
-        if price_info and price_info.get('price'):
-            price_display = html.Div([
-                html.Div([
-                    html.H4(f"${price_info['price']:,.2f}", className="text-primary mb-1"),
-                    html.Small(f"{symbol} • {format_argentina_time(price_info['timestamp'], '%H:%M:%S %Z')}", className="text-muted")
-                ], className="d-flex justify-content-between align-items-center"),
-                html.Hr(className="my-2"),
-                html.Div([
-                    html.Small([
-                        html.Strong("Bid: "), f"${price_info.get('bid', 0):,.2f}" if price_info.get('bid') is not None else "N/A", " • ",
-                        html.Strong("Ask: "), f"${price_info.get('ask', 0):,.2f}" if price_info.get('ask') is not None else "N/A", " • ",
-                        html.Strong("Vol: "), f"{price_info.get('volume', 0):,.0f}"
-                    ], className="text-muted")
-                ])
-            ])
+        # Hero Section - Price and Symbol
+        hero_symbol_text = f"{symbol.split('/')[0]} / {symbol.split('/')[1]}" if '/' in symbol else symbol
+        hero_price_text = f"${price_info['price']:,.2f}" if price_info and price_info.get('price') else "---"
+        
+        # Calculate price change (comparing with yesterday's close if available)
+        hero_change_text = ""
+        hero_change_class = "fs-5 me-2"
+        hero_change_pct_text = ""
+        if price_info and price_info.get('price') and not trades.empty:
+            try:
+                # Get yesterday's last trade price for comparison
+                yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+                yesterday_trades = trades[pd.to_datetime(trades['entry_time']).dt.date == yesterday]
+                if not yesterday_trades.empty:
+                    last_price = yesterday_trades.iloc[0]['exit_price']
+                    change = price_info['price'] - last_price
+                    change_pct = (change / last_price) * 100
+                    hero_change_text = f"{change:+,.2f}"
+                    hero_change_pct_text = f"({change_pct:+.2f}%)"
+                    hero_change_class = f"fs-5 me-2 {'text-success' if change >= 0 else 'text-danger'}"
+            except Exception:
+                pass
+        
+        # Hero Section - Trading Window
+        config = get_effective_config(symbol, mode or "moderate")
+        entry_window = config.get('entry_window', (11, 14))
+        exit_window = config.get('exit_window', (20, 22))
+        hero_entry_window_text = f"{entry_window[0]:02d}:00 - {entry_window[1]:02d}:00"
+        
+        # Check if currently in trading window
+        now_ar = datetime.now(ARGENTINA_TZ)
+        current_hour = now_ar.hour
+        in_entry_window = entry_window[0] <= current_hour < entry_window[1]
+        in_exit_window = exit_window[0] <= current_hour < exit_window[1]
+        
+        if in_entry_window:
+            hero_session_status_text = "🟢 Ventana de entrada activa"
+        elif in_exit_window:
+            hero_session_status_text = "🔴 Ventana de salida activa"
         else:
-            missing_msg = "fetch_latest_price no disponible" if fetch_latest_price is None else "No se pudo obtener el precio actual"
-            price_display = html.Div([
-                html.P(missing_msg, className="text-muted mb-0"),
-                html.Small(f"{symbol} • {format_argentina_time(datetime.now(timezone.utc), '%H:%M:%S %Z')}", className="text-muted")
-            ])
+            hero_session_status_text = "⏸️ Fuera de ventana"
+        
+        # Hero Section - Risk and Mode
+        risk_usdt = config.get('risk_usdt', 20.0)
+        hero_risk_text = f"${risk_usdt:.2f} USDT"
+        mode_display = {"conservative": "Conservador", "moderate": "Moderado", "aggressive": "Agresivo"}.get((mode or "moderate").lower(), mode.capitalize())
+        hero_mode_text = f"Modo {mode_display}"
+        
+        # Hero Section - Active Trade Status
+        if active_trade is not None:
+            hero_active_trade_text = "Trade Activo"
+        else:
+            hero_active_trade_text = "Sin Trade"
+        
+        # Hero Section - Inversion Badge
+        hero_inversion_badge_style = {"display": "inline-block"} if is_inverted else {"display": "none"}
 
         # Prepare trades for display
         # Apply inversion for display if enabled
@@ -1449,7 +1602,7 @@ def create_app():
         tl = figure_trade_timeline(trades_display)
         mon = figure_monthly_performance(trades_display)
         wl = figure_win_loss(trades_display)
-        price_fig = figure_trades_on_price(trades_display, symbol)
+        price_fig = figure_trades_on_price(trades_display, symbol, timeframe="1h", today_recommendation=today_recommendation)
         
         # Prepare table data
         table_data = []
@@ -1486,7 +1639,26 @@ def create_app():
             except Exception:
                 pass
 
-        return price_display, reco_children, [capital_info, metrics_children], eq, pnl, dd, tl, mon, wl, price_fig, table_data, bool(alert_msg), alert_msg
+        return (
+            hero_symbol_text,
+            hero_price_text,
+            hero_change_text,
+            hero_change_class,
+            hero_change_pct_text,
+            hero_entry_window_text,
+            hero_session_status_text,
+            hero_risk_text,
+            hero_mode_text,
+            hero_active_trade_text,
+            hero_inversion_badge_style,
+            reco_children,
+            [capital_info, metrics_children],
+            eq, pnl, dd, tl, mon, wl, price_fig,
+            table_data,
+            bool(alert_msg),
+            alert_msg,
+            alert_color
+        )
 
     return app
 
