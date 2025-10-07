@@ -17,13 +17,14 @@ Invierte un trade individual:
 #### `invert_trades_dataframe(trades: pd.DataFrame) -> pd.DataFrame`
 Invierte todos los trades en un DataFrame aplicando las mismas transformaciones.
 
-#### `invert_metrics(metrics: dict) -> dict`
-Invierte las métricas de performance:
-- **total_pnl**: Multiplica por -1
-- **roi**: Multiplica por -1
-- **win_rate**: Se convierte en loss_rate (100 - win_rate)
-- **max_drawdown**: Se convierte en max_gain (-max_drawdown)
-- **current_capital**: Se recalcula con el PnL invertido
+#### `invert_metrics(metrics: dict) -> dict` [DEPRECATED]
+⚠️ **Esta función está deprecada.** Usar `compute_metrics_pure(..., invertido=True)` en su lugar.
+
+La función se mantiene solo para compatibilidad con tests legacy. El nuevo enfoque calcula métricas directamente desde trades invertidos, manteniendo la interpretación estándar:
+- **Win rate**: Refleja el porcentaje real de trades ganadores en la serie invertida
+- **Max drawdown**: Siempre negativo (magnitud sensible)
+- **Profit factor**: Calculado con reglas estables (ganancias/pérdidas invertidas)
+- **Total PnL, ROI**: Métricas direccionales invertidas normalmente
 
 ### 2. Interfaz de Usuario
 
@@ -34,20 +35,19 @@ Invierte las métricas de performance:
 
 #### Indicadores Visuales
 - **Badge "INVERTIDA"**: Aparece en el panel de estrategia cuando está activo
-- **Labels adaptativos**: 
-  - "Win rate" → "Loss rate"
-  - "Max DD" → "Max Gain"
-- **Tooltips actualizados**: Explican el significado en modo invertido
-- **Colores adaptativos**: Los colores de las métricas se ajustan al contexto invertido
+- **Labels estándar**: Las etiquetas se mantienen iguales ("Win rate", "Max DD", "Profit Factor") en ambos modos
+- **Tooltips informativos**: Explican que las métricas se calculan sobre trades invertidos cuando el modo está activo
+- **Colores estándar**: Los colores siguen la misma lógica en ambos modos (win rate alto = verde, DD negativo = rojo, etc.)
 
 ### 3. Propagación del Modo Invertido
 
 #### Dashboard Principal
-- **Trades**: Se invierten automáticamente cuando el switch está activo
-- **Métricas**: Se recalculan con los datos invertidos
-- **Gráficos**: Reciben los datos ya invertidos
-- **Tabla de trades**: Muestra los datos invertidos
-- **Trade activo**: Se invierte si existe
+- **Trades (display)**: Se invierten solo para visualización (gráficos y tabla)
+- **Métricas**: Se calculan con `compute_metrics_pure(..., invertido=True)` directamente desde datos originales
+- **Pipeline**: Evita doble inversión - solo se invierte una vez para display, una vez internamente en compute_metrics
+- **Gráficos**: Reciben trades invertidos para mostrar visualmente
+- **Tabla de trades**: Muestra los datos invertidos para coherencia visual
+- **Trade activo**: Se invierte solo para display
 
 #### Recomendación Diaria
 - **Display**: Se invierte para el usuario (LONG se muestra como SHORT)
@@ -92,13 +92,19 @@ Invierte las métricas de performance:
 
 ### Modo Normal (Switch OFF)
 - **Datos**: Se muestran tal como están almacenados
-- **Métricas**: Win rate, PnL positivo = bueno, Max DD negativo = malo
+- **Métricas**: Win rate alto = bueno, PnL positivo = bueno, Max DD negativo = malo
 - **Validación**: Compara señales originales
 - **Indicadores**: Sin badge "INVERTIDA"
 
-### Modo Invertido (Switch ON)
-- **Datos**: Se invierten automáticamente
-- **Métricas**: Loss rate alto = bueno, PnL positivo = bueno, Max Gain positivo = bueno
+### Modo Invertido (Switch ON) - NUEVO COMPORTAMIENTO
+- **Datos (display)**: Se invierten solo para visualización
+- **Métricas**: Mantienen interpretación estándar
+  - **Win rate**: Refleja el % real de trades ganadores en la serie invertida (no 100 - win_rate)
+  - **Max DD**: Siempre negativo, representa la máxima pérdida desde un pico
+  - **Profit Factor**: Calculado normalmente desde trades invertidos
+  - **PnL, ROI**: Reflejan el resultado de los trades invertidos (dirección cambiada)
+- **Labels**: Se mantienen estándar ("Win rate", "Max DD", etc.)
+- **Colores**: Siguen la misma lógica (win rate alto = verde, DD negativo = rojo)
 - **Validación**: Sigue comparando señales originales (no invertidas)
 - **Indicadores**: Badge "INVERTIDA" visible
 
@@ -116,6 +122,8 @@ Invierte las métricas de performance:
 4. **Consistencia**: Doble inversión restaura el estado original
 5. **Integración**: Se integra perfectamente con la funcionalidad existente
 6. **Pruebas**: Cobertura completa con tests unitarios e integración
+7. **Interpretación Estándar**: Las métricas mantienen su significado estándar, facilitando el análisis
+8. **Sin Confusión**: Labels y colores no cambian, evitando ambigüedad
 
 ## Casos de Uso
 
@@ -134,13 +142,32 @@ Invierte las métricas de performance:
 - Validar que la lógica de inversión funciona correctamente
 - Verificar que la UI se adapta correctamente al modo invertido
 
+## Cambios Recientes (Alineación de Métricas)
+
+### Actualización: Interpretación Estándar de Métricas
+Se implementó una mejora importante para alinear las métricas en modo invertido:
+
+#### Antes:
+- Win rate se transformaba a loss rate (100 - win_rate)
+- Max DD se mostraba como max gain (positivo)
+- Labels cambiaban ("Win rate" → "Loss rate")
+- Colores se invertían
+
+#### Ahora:
+- **Win rate**: Muestra el % real de trades ganadores en la serie invertida
+- **Max DD**: Siempre negativo (magnitud sensible), no se invierte el signo
+- **Labels**: Se mantienen estándar en ambos modos
+- **Colores**: Lógica estándar en ambos modos
+- **Pipeline**: `compute_metrics_pure(..., invertido=True)` evita doble inversión
+
 ## Verificación de Implementación
 
-Todos los tests pasan exitosamente:
-- ✅ Tests unitarios de inversión
+Todos los tests actualizados pasan exitosamente:
+- ✅ Tests unitarios de inversión (actualizados)
 - ✅ Tests de validación de trade diario
-- ✅ Tests de integración completa
+- ✅ Tests de integración completa (actualizados)
+- ✅ Tests parametrizados de métricas (actualizados)
 - ✅ Verificación de consistencia
 - ✅ Verificación de casos edge
 
-La implementación está completa y lista para uso en producción.
+La implementación está actualizada y lista para uso en producción con el nuevo comportamiento de interpretación estándar.

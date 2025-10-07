@@ -707,32 +707,34 @@ def invert_trades_dataframe(trades: pd.DataFrame) -> pd.DataFrame:
 
 def invert_metrics(metrics: dict) -> dict:
     """
-    Invert performance metrics to reflect strategy inversion.
+    [DEPRECATED] This function is no longer needed.
+    Use compute_metrics_pure(..., invertido=True) instead.
     
-    Args:
-        metrics: Dictionary containing performance metrics
-        
-    Returns:
-        Dictionary with inverted metrics
+    Kept for backwards compatibility with existing tests.
+    When invertido=True is used in compute_metrics_pure, metrics are
+    calculated correctly from inverted trades with standard interpretation.
+    
+    This function implements the OLD behavior for legacy tests only.
     """
     inverted = metrics.copy()
+    
+    # OLD BEHAVIOR - DEPRECATED
+    # This transformation is no longer recommended as it changes metric interpretation
+    # Instead, compute_metrics_pure with invertido=True should be used
     
     # Invert PnL-related metrics
     if "total_pnl" in inverted:
         inverted["total_pnl"] = -inverted["total_pnl"]
     
     if "current_capital" in inverted and "initial_capital" in inverted:
-        # Recalculate current capital with inverted PnL
         inverted["current_capital"] = inverted["initial_capital"] + inverted["total_pnl"]
     
     if "roi" in inverted:
         inverted["roi"] = -inverted["roi"]
     
-    # Invert drawdown (max drawdown becomes max gain)
     if "max_drawdown" in inverted:
         inverted["max_drawdown"] = -inverted["max_drawdown"]
     
-    # Win rate becomes loss rate (100 - win_rate)
     if "win_rate" in inverted:
         inverted["win_rate"] = 100.0 - inverted["win_rate"]
     
@@ -1204,9 +1206,8 @@ def create_app():
         # Load updated trades
         trades = load_trades(symbol, mode or "moderate")
         
-        # Apply inversion if enabled
-        if is_inverted and not trades.empty:
-            trades = invert_trades_dataframe(trades)
+        # Note: Inversion is now handled in compute_metrics_pure with invertido flag
+        # No need to invert trades here to avoid double inversion
         
         # Load active trade if any to reflect in UI
         active_trade = None
@@ -1298,26 +1299,21 @@ def create_app():
             else:
                 return dbc.Col(card_content, md=3, sm=6, xs=12)
 
-        # Adjust colors and labels based on inversion state
-        if is_inverted:
-            # In inverted mode, win_rate is actually loss rate, so we want high "loss rate" to be good
-            win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
-            pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
-            dd_color = "success" if m['max_drawdown'] > 0 else "secondary"  # Inverted: positive drawdown is good
-            roi_color = "success" if m['roi'] >= 0 else "danger"
-        else:
-            win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
-            pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
-            dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
-            roi_color = "success" if m['roi'] >= 0 else "danger"
+        # Colors use standard interpretation in both modes
+        # Since metrics are calculated consistently, color logic is the same
+        win_color = "success" if m['win_rate'] >= 50 else "warning" if m['win_rate'] > 0 else "secondary"
+        pnl_color = "success" if m['total_pnl'] >= 0 else "danger"
+        dd_color = "danger" if m['max_drawdown'] < 0 else "secondary"
+        roi_color = "success" if m['roi'] >= 0 else "danger"
 
-        # Adjust labels based on inversion state
-        win_rate_label = "Loss rate" if is_inverted else "Win rate"
-        win_rate_tooltip = "Porcentaje de operaciones perdedoras vs ganadoras (estrategia invertida)" if is_inverted else "Porcentaje de operaciones ganadoras vs perdedoras"
-        dd_label = "Max Gain" if is_inverted else "Max DD"
-        dd_tooltip = "Máxima ganancia desde un valle de capital (estrategia invertida)" if is_inverted else "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)"
-        pf_label = "Loss Factor" if is_inverted else "Profit Factor"
-        pf_tooltip = "Factor de pérdida (estrategia invertida)" if is_inverted else "Ratio entre ganancias brutas y pérdidas brutas"
+        # Labels remain standard in both normal and inverted modes
+        # Metrics maintain their standard interpretation
+        win_rate_label = "Win rate"
+        win_rate_tooltip = "Porcentaje de operaciones ganadoras (calculado sobre trades invertidos si el modo está activo)" if is_inverted else "Porcentaje de operaciones ganadoras vs perdedoras"
+        dd_label = "Max DD"
+        dd_tooltip = "Máxima pérdida desde un pico de capital (calculada sobre trades invertidos si el modo está activo, siempre negativa)" if is_inverted else "Máxima pérdida desde un pico de capital (en USDT y múltiplos de riesgo)"
+        pf_label = "Profit Factor"
+        pf_tooltip = "Ratio entre ganancias brutas y pérdidas brutas (calculado sobre trades invertidos si el modo está activo)" if is_inverted else "Ratio entre ganancias brutas y pérdidas brutas"
         
         metrics_children = dbc.Row([
             kpi_card("Total trades", f"{m['total_trades']}", "primary", "bi-collection", 
@@ -1362,14 +1358,6 @@ def create_app():
                 ], className="shadow-sm")
             ], md=6)
         ], className="g-3 mb-4")
-
-        eq = figure_equity_curve(trades)
-        pnl = figure_pnl_distribution(trades)
-        dd = figure_drawdown(trades)
-        tl = figure_trade_timeline(trades)
-        mon = figure_monthly_performance(trades)
-        wl = figure_win_loss(trades)
-        price_fig = figure_trades_on_price(trades, symbol)
 
         # Today recommendation via live monitor
         reco_children = html.Div("Se requiere módulo de señales.")
@@ -1448,10 +1436,25 @@ def create_app():
                 html.Small(f"{symbol} • {format_argentina_time(datetime.now(timezone.utc), '%H:%M:%S %Z')}", className="text-muted")
             ])
 
-        # If no data, still return empty figures but show alert clearly
+        # Prepare trades for display
+        # Apply inversion for display if enabled
+        trades_display = trades.copy() if not trades.empty else trades
+        if is_inverted and not trades_display.empty:
+            trades_display = invert_trades_dataframe(trades_display)
+        
+        # Prepare figures with inverted trades for display
+        eq = figure_equity_curve(trades_display)
+        pnl = figure_pnl_distribution(trades_display)
+        dd = figure_drawdown(trades_display)
+        tl = figure_trade_timeline(trades_display)
+        mon = figure_monthly_performance(trades_display)
+        wl = figure_win_loss(trades_display)
+        price_fig = figure_trades_on_price(trades_display, symbol)
+        
+        # Prepare table data
         table_data = []
-        if not trades.empty:
-            tbl = trades.copy()
+        if not trades_display.empty:
+            tbl = trades_display.copy()
             # Ordering recent first
             if "entry_time" in tbl.columns:
                 tbl = tbl.sort_values(by="entry_time", ascending=False)

@@ -1,6 +1,101 @@
 # Changes Summary
 
-## 1. Consolidar a Sesión AR Única - Eliminar Soporte 24h
+## 1. Alineación de Métricas en Modo Invertido (NEW)
+
+### Objetivo:
+Actualizar el modo de inversión de estrategia para que las métricas mantengan su interpretación estándar en lugar de transformarlas (e.g., win rate → loss rate).
+
+### Changes Made:
+
+#### Webapp (`webapp/app.py`):
+
+##### `invert_metrics()` - Deprecado:
+- ⚠️ Marcada como `[DEPRECATED]`
+- Mantiene la lógica antigua solo para compatibilidad con tests legacy
+- Documentación actualizada indicando usar `compute_metrics_pure(..., invertido=True)`
+
+##### Pipeline de Métricas:
+- **Eliminada doble inversión**: Antes se invertían trades en línea 1209 y luego se pasaba `invertido=True` a compute_metrics_pure
+- **Nuevo flujo**: 
+  - Trades originales se mantienen para cálculo de métricas
+  - Se invierten SOLO para display (gráficos y tabla)
+  - `compute_metrics_pure(..., invertido=True)` maneja la inversión internamente
+
+##### UI Labels y Colores:
+- **Labels**: Se mantienen estándar ("Win rate", "Max DD", "Profit Factor") en ambos modos
+- **Tooltips**: Actualizados para explicar que se calculan sobre trades invertidos
+- **Colores**: Lógica estándar en ambos modos (win rate alto = verde, DD negativo = rojo)
+- **Eliminado**: Transformación de labels ("Loss rate", "Max Gain", etc.)
+
+##### Display de Trades:
+- Nueva variable `trades_display` que se invierte solo para visualización
+- Gráficos y tabla reciben `trades_display` (invertido)
+- Métricas se calculan desde `trades` (original) con flag `invertido=True`
+
+##### Validación:
+- Se mantiene correcta: usa señales originales para comparación
+- No afectada por el modo de display
+
+#### Tests Actualizados:
+
+##### `webapp/test_metrics_parametrized.py`:
+- `test_metrics_consistency()`: Actualizado para validar win rate real de trades invertidos (no 100 - win_rate)
+- Añadida documentación del NUEVO comportamiento
+- Verificación de que max_drawdown siempre es negativo
+
+##### `webapp/test_strategy_inversion_integration.py`:
+- `test_complete_inversion_flow()`: Usa `compute_metrics_pure` en lugar de `invert_metrics`
+- `test_metric_labels_and_colors()`: Valida que labels NO cambien en modo invertido
+- `test_double_inversion_consistency()`: Actualizado para nuevo pipeline
+- Documentación actualizada en todos los tests
+
+#### Documentation:
+
+##### `INVERSION_ESTRATEGIA_RESUMEN.md`:
+- Sección nueva: "Cambios Recientes (Alineación de Métricas)"
+- Comparación Antes/Ahora del comportamiento
+- Actualización de la descripción del pipeline
+- Documentación de métricas con interpretación estándar
+
+### Comportamiento Actualizado:
+
+#### Métricas Direccionales (se invierten):
+- `total_pnl`: Refleja el PnL de trades invertidos (-1 * original)
+- `avg_pnl`: Promedio invertido
+- `roi`: Retorno invertido
+- `best_trade` / `worst_trade`: Invertidos
+- `expectancy`: Invertido
+- `profit_factor`: Recalculado desde trades invertidos
+
+#### Métricas con Magnitud (NO se transforman):
+- `win_rate`: % REAL de trades ganadores en serie invertida (no 100 - win_rate)
+- `max_drawdown`: Siempre NEGATIVO (representa pérdidas desde pico)
+- `dd_in_r`: Calculado normalmente desde trades invertidos
+
+#### UI Consistency:
+- Labels estándar en ambos modos
+- Colores estándar en ambos modos
+- Badge "INVERTIDA" visible cuando activo
+- Tooltips informativos sobre el cálculo
+
+### Benefits:
+
+1. **Claridad**: Métricas mantienen su significado estándar
+2. **No Confusión**: Labels y colores no cambian
+3. **Correctitud**: Win rate refleja realidad de trades invertidos
+4. **Consistencia**: Drawdown siempre negativo (convención estándar)
+5. **Simplicidad**: Un solo pipeline de cálculo (compute_metrics_pure)
+6. **Profesionalismo**: Interpretación estándar de métricas financieras
+
+### Test Coverage:
+- ✅ Tests parametrizados actualizados
+- ✅ Tests de integración actualizados
+- ✅ Validación de comportamiento nuevo
+- ✅ Documentación completa
+
+---
+
+## 2. Consolidar a Sesión AR Única - Eliminar Soporte 24h
 
 ### Changes Made:
 

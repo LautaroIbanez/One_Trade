@@ -68,22 +68,28 @@ def create_comprehensive_test_data():
 
 
 def test_complete_inversion_flow():
-    """Test the complete inversion flow from data to metrics."""
+    """Test the complete inversion flow from data to metrics.
+    
+    NEW BEHAVIOR: Metrics maintain standard interpretation.
+    - Use compute_metrics_pure(..., invertido=True) instead of invert_metrics()
+    - Win rate reflects actual win percentage of inverted trades
+    - Max drawdown always negative (magnitude-sensitive)
+    """
     print("Testing complete inversion flow...")
     
-    from webapp.app import invert_trades_dataframe, invert_metrics, compute_metrics
+    from webapp.app import invert_trades_dataframe, compute_metrics_pure
     
     # Create test data
     original_trades = create_comprehensive_test_data()
     
     # Test normal metrics
-    normal_metrics = compute_metrics(original_trades, 1000.0, 1.0)
+    normal_metrics = compute_metrics_pure(original_trades, 1000.0, 1.0, invertido=False)
     
     # Test inverted trades
     inverted_trades = invert_trades_dataframe(original_trades)
     
-    # Test inverted metrics
-    inverted_metrics = invert_metrics(normal_metrics)
+    # Test inverted metrics using NEW approach
+    inverted_metrics = compute_metrics_pure(original_trades, 1000.0, 1.0, invertido=True)
     
     # Verify inversion worked correctly
     assert len(inverted_trades) == len(original_trades), "Inverted trades should have same length"
@@ -108,11 +114,17 @@ def test_complete_inversion_flow():
     assert inverted_trades.iloc[1]["exit_reason"] == "stop_loss", "Second trade exit reason should be inverted"
     assert inverted_trades.iloc[2]["exit_reason"] == "take_profit", "Third trade exit reason should be inverted"
     
-    # Check metrics inversion
+    # Check metrics inversion (NEW BEHAVIOR)
+    # Directional metrics: inverted
     assert inverted_metrics["total_pnl"] == -normal_metrics["total_pnl"], "Total PnL should be inverted"
     assert inverted_metrics["roi"] == -normal_metrics["roi"], "ROI should be inverted"
-    assert inverted_metrics["win_rate"] == 100.0 - normal_metrics["win_rate"], "Win rate should be inverted"
-    assert inverted_metrics["max_drawdown"] == -normal_metrics["max_drawdown"], "Max drawdown should be inverted"
+    
+    # Win rate: reflects actual win percentage of inverted trades (not 100 - win_rate)
+    # For this dataset: normal has 2 wins out of 3 (66.67%), inverted has 1 win out of 3 (33.33%)
+    assert abs(inverted_metrics["win_rate"] - 33.33) < 0.1, f"Win rate should be 33.33% for inverted trades, got {inverted_metrics['win_rate']}"
+    
+    # Max drawdown: always negative (magnitude-sensitive)
+    assert inverted_metrics["max_drawdown"] <= 0, "Max drawdown should always be negative or zero"
     
     print("✅ Complete inversion flow test passed")
 
@@ -143,37 +155,41 @@ def test_ui_state_management():
 
 
 def test_metric_labels_and_colors():
-    """Test metric labels and colors based on inversion state."""
+    """Test metric labels and colors based on inversion state.
+    
+    NEW BEHAVIOR: Labels remain standard in both modes, colors use standard interpretation.
+    """
     print("Testing metric labels and colors...")
     
     # Test normal mode
     is_inverted = False
-    win_rate_label = "Loss rate" if is_inverted else "Win rate"
-    dd_label = "Max Gain" if is_inverted else "Max DD"
+    win_rate_label = "Win rate"  # Always "Win rate" now
+    dd_label = "Max DD"  # Always "Max DD" now
     
     assert win_rate_label == "Win rate", "Normal mode should show 'Win rate'"
     assert dd_label == "Max DD", "Normal mode should show 'Max DD'"
     
-    # Test inverted mode
+    # Test inverted mode - labels should remain the same
     is_inverted = True
-    win_rate_label = "Loss rate" if is_inverted else "Win rate"
-    dd_label = "Max Gain" if is_inverted else "Max DD"
+    win_rate_label = "Win rate"  # No longer changes to "Loss rate"
+    dd_label = "Max DD"  # No longer changes to "Max Gain"
     
-    assert win_rate_label == "Loss rate", "Inverted mode should show 'Loss rate'"
-    assert dd_label == "Max Gain", "Inverted mode should show 'Max Gain'"
+    assert win_rate_label == "Win rate", "Inverted mode should still show 'Win rate'"
+    assert dd_label == "Max DD", "Inverted mode should still show 'Max DD'"
     
-    # Test color logic for inverted mode
-    metrics = {"win_rate": 33.33, "total_pnl": -150.0, "max_drawdown": 50.0, "roi": -15.0}
+    # Test color logic - should be consistent across both modes
+    # Example: inverted strategy with poor performance
+    metrics = {"win_rate": 33.33, "total_pnl": -150.0, "max_drawdown": -50.0, "roi": -15.0}
     
-    # In inverted mode, high "loss rate" (which is actually win rate) should be good
+    # Standard color logic applies to both modes
     win_color = "success" if metrics['win_rate'] >= 50 else "warning" if metrics['win_rate'] > 0 else "secondary"
     pnl_color = "success" if metrics['total_pnl'] >= 0 else "danger"
-    dd_color = "success" if metrics['max_drawdown'] > 0 else "secondary"  # Inverted: positive drawdown is good
+    dd_color = "danger" if metrics['max_drawdown'] < 0 else "secondary"
     roi_color = "success" if metrics['roi'] >= 0 else "danger"
     
-    assert win_color == "warning", "Low win rate should be warning color"
+    assert win_color == "warning", "Low win rate (33%) should be warning color"
     assert pnl_color == "danger", "Negative PnL should be danger color"
-    assert dd_color == "success", "Positive drawdown in inverted mode should be success color"
+    assert dd_color == "danger", "Negative drawdown should be danger color"
     assert roi_color == "danger", "Negative ROI should be danger color"
     
     print("✅ Metric labels and colors test passed")
@@ -229,29 +245,36 @@ def test_validation_with_inversion():
 
 
 def test_double_inversion_consistency():
-    """Test that double inversion returns to original state."""
+    """Test that double inversion returns to original state.
+    
+    NEW BEHAVIOR: Use compute_metrics_pure for consistent behavior.
+    """
     print("Testing double inversion consistency...")
     
-    from webapp.app import invert_trades_dataframe, invert_metrics, compute_metrics
+    from webapp.app import invert_trades_dataframe, compute_metrics_pure
     
     # Create test data
     original_trades = create_comprehensive_test_data()
-    original_metrics = compute_metrics(original_trades, 1000.0, 1.0)
+    original_metrics = compute_metrics_pure(original_trades, 1000.0, 1.0, invertido=False)
     
-    # Apply inversion twice
+    # Apply trade inversion twice
     inverted_once = invert_trades_dataframe(original_trades)
     inverted_twice = invert_trades_dataframe(inverted_once)
     
-    metrics_inverted_once = invert_metrics(original_metrics)
-    metrics_inverted_twice = invert_metrics(metrics_inverted_once)
+    # Compute metrics with double inversion (should equal normal metrics)
+    # First inversion
+    metrics_inverted_once = compute_metrics_pure(original_trades, 1000.0, 1.0, invertido=True)
+    # Double inversion: apply inversion to already inverted trades
+    metrics_inverted_twice = compute_metrics_pure(inverted_once, 1000.0, 1.0, invertido=True)
     
     # Check that double inversion returns to original
     pd.testing.assert_frame_equal(original_trades, inverted_twice, check_dtype=False)
     
-    assert metrics_inverted_twice["total_pnl"] == original_metrics["total_pnl"], "Double inversion should restore original total_pnl"
-    assert metrics_inverted_twice["roi"] == original_metrics["roi"], "Double inversion should restore original ROI"
-    assert metrics_inverted_twice["win_rate"] == original_metrics["win_rate"], "Double inversion should restore original win_rate"
-    assert metrics_inverted_twice["max_drawdown"] == original_metrics["max_drawdown"], "Double inversion should restore original max_drawdown"
+    # Metrics should also return to original after double inversion
+    assert abs(metrics_inverted_twice["total_pnl"] - original_metrics["total_pnl"]) < 0.01, "Double inversion should restore original total_pnl"
+    assert abs(metrics_inverted_twice["roi"] - original_metrics["roi"]) < 0.01, "Double inversion should restore original ROI"
+    assert abs(metrics_inverted_twice["win_rate"] - original_metrics["win_rate"]) < 0.1, "Double inversion should restore original win_rate"
+    assert abs(metrics_inverted_twice["max_drawdown"] - original_metrics["max_drawdown"]) < 0.01, "Double inversion should restore original max_drawdown"
     
     print("✅ Double inversion consistency test passed")
 

@@ -264,10 +264,16 @@ def test_metrics_calculation_inverted_mode():
 
 
 def test_metrics_consistency():
-    """Test that metrics are consistent between normal and inverted modes."""
+    """Test that metrics are consistent between normal and inverted modes.
+    
+    NOTE: This test validates the NEW behavior where:
+    - Win rate reflects the actual win percentage of inverted trades (not 100 - win_rate)
+    - All metrics maintain standard interpretation
+    - Max drawdown always remains negative (magnitude-sensitive)
+    """
     print("Testing metrics consistency...")
     
-    from webapp.app import compute_metrics_pure, invert_metrics
+    from webapp.app import compute_metrics_pure
     
     for test_case in TEST_CASES:
         print(f"  Testing {test_case['name']}...")
@@ -281,21 +287,25 @@ def test_metrics_consistency():
         # Test consistency: total_trades should be the same
         assert normal_metrics['total_trades'] == inverted_metrics['total_trades'], "Total trades should be the same"
         
-        # Test consistency: win_rate should be inverted
-        expected_inverted_win_rate = 100.0 - normal_metrics['win_rate']
-        assert abs(inverted_metrics['win_rate'] - expected_inverted_win_rate) < 0.1, "Win rate should be inverted"
+        # NEW BEHAVIOR: win_rate reflects actual win percentage of inverted trades
+        # This should match the expected_inverted win_rate from test cases
+        expected_inverted = test_case['expected_inverted']
+        assert abs(inverted_metrics['win_rate'] - expected_inverted['win_rate']) < 0.1, f"Win rate should reflect inverted trades actual win rate: {inverted_metrics['win_rate']} vs {expected_inverted['win_rate']}"
         
-        # Test consistency: total_pnl should be inverted
+        # Test consistency: total_pnl should be inverted (directional metric)
         expected_inverted_pnl = -normal_metrics['total_pnl']
         assert abs(inverted_metrics['total_pnl'] - expected_inverted_pnl) < 0.01, "Total PnL should be inverted"
         
-        # Test consistency: avg_pnl should be inverted
+        # Test consistency: avg_pnl should be inverted (directional metric)
         expected_inverted_avg_pnl = -normal_metrics['avg_pnl']
         assert abs(inverted_metrics['avg_pnl'] - expected_inverted_avg_pnl) < 0.01, "Avg PnL should be inverted"
         
-        # Test consistency: expectancy should be inverted
+        # Test consistency: expectancy should be inverted (directional metric)
         expected_inverted_expectancy = -normal_metrics['expectancy']
         assert abs(inverted_metrics['expectancy'] - expected_inverted_expectancy) < 0.01, "Expectancy should be inverted"
+        
+        # Test consistency: max_drawdown should always be negative (magnitude-sensitive)
+        assert inverted_metrics['max_drawdown'] <= 0, "Max drawdown should always be negative or zero"
     
     print("✅ Metrics consistency test passed")
 
