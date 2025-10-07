@@ -68,8 +68,10 @@ BASE_CONFIG = {
     "min_trades": 10,                   # Minimum number of trades
     "min_profit_factor": 1.2,           # Minimum profit factor
     # When rebuilding, start date or lookback control
+    # IMPORTANT: Minimum 365 days (1 year) required for statistically significant backtests
+    # This ensures sufficient data for both normal and inverted strategy validation
     "backtest_start_date": None,  # ISO date string e.g., "2024-01-01"
-    "lookback_days": 30,
+    "lookback_days": 365,  # Minimum 1 year of data
 }
 # Mode to assets mapping
 MODE_ASSETS = {
@@ -201,7 +203,19 @@ MODE_CONFIG = {
 
 
 def get_effective_config(symbol: str, mode: str) -> dict:
-    """Return merged BASE_CONFIG with selected mode overrides. Uses session trading only."""
+    """
+    Return merged BASE_CONFIG with selected mode overrides. Uses session trading only.
+    
+    IMPORTANT: Enforces minimum 365-day lookback period for statistical significance.
+    This is critical for both normal and inverted strategy validation.
+    
+    Args:
+        symbol: Trading symbol
+        mode: Trading mode ('conservative', 'moderate', 'aggressive')
+        
+    Returns:
+        dict: Effective configuration with minimum 1-year lookback
+    """
     mode_cfg = MODE_CONFIG.get((mode or "moderate").lower(), {})
     
     # Start with base config, then apply mode config
@@ -210,6 +224,23 @@ def get_effective_config(symbol: str, mode: str) -> dict:
     # Always use session trading
     config["full_day_trading"] = False
     config["session_trading"] = True
+    
+    # Enforce minimum 365-day lookback (1 year minimum for valid backtests)
+    # This prevents insufficient data errors and ensures statistical significance
+    if "lookback_days" in config:
+        config["lookback_days"] = max(365, config.get("lookback_days", 365))
+    else:
+        config["lookback_days"] = 365
+    
+    # If backtest_start_date is set, ensure it's at least 365 days ago
+    if config.get("backtest_start_date"):
+        start_date = datetime.fromisoformat(config["backtest_start_date"]).date()
+        today = datetime.now(timezone.utc).date()
+        days_diff = (today - start_date).days
+        
+        if days_diff < 365:
+            logger.warning(f"backtest_start_date too recent ({days_diff} days), adjusting to 365 days ago")
+            config["backtest_start_date"] = (today - timedelta(days=365)).isoformat()
     
     return config
 
@@ -367,24 +398,46 @@ def refresh_trades(symbol: str, mode: str) -> str:
         )
         
         # Determine default since using config lookback/backtest_start_date
+        # IMPORTANT: get_effective_config enforces minimum 365 days
         cfg_for_since = get_effective_config(symbol, mode)
         start_override = cfg_for_since.get("backtest_start_date")
-        lb_days = cfg_for_since.get("lookback_days", 30)
+        lb_days = cfg_for_since.get("lookback_days", 365)  # Will be at least 365 from get_effective_config
         default_since = (start_override or (datetime.now(timezone.utc).date() - timedelta(days=int(lb_days))).isoformat())
         
+        # Check if existing trades cover sufficient history (365 days minimum)
+        insufficient_history = False
+        if not existing_trades.empty and "entry_time" in existing_trades.columns:
+            df_dates = pd.to_datetime(existing_trades["entry_time"])
+            earliest_date = df_dates.min().date()
+            today = datetime.now(timezone.utc).date()
+            days_coverage = (today - earliest_date).days
+            
+            if days_coverage < 365:
+                logger.warning(f"Insufficient history: only {days_coverage} days, need 365+ for valid backtest")
+                insufficient_history = True
+        
         if mode_change_detected:
-            print(f"🔄 Mode change detected: switching to session mode")
+            logger.info(f"🔄 Mode change detected: switching to session mode with 1-year history")
             # Clear existing trades and force rebuild
             existing_trades = pd.DataFrame()
             since = default_since
-            print(f"📅 Mode change: using default since date: {since}")
+            logger.info(f"📅 Mode change: using default since date: {since} (365+ days)")
+        elif insufficient_history:
+            logger.info(f"🔄 Insufficient history detected: forcing full rebuild with 1-year data")
+            # Clear existing trades and force rebuild from 365 days ago
+            existing_trades = pd.DataFrame()
+            since = default_since
+            logger.info(f"📅 Rebuilding from: {since} (365+ days)")
         elif not existing_trades.empty and "entry_time" in existing_trades.columns:
-            df_dates = pd.to_datetime(existing_trades["entry_time"])  # ensure datetime
+            # Incremental update: continue from last trade date
+            df_dates = pd.to_datetime(existing_trades["entry_time"])
             last_date = df_dates.max().date()
             since = (last_date + timedelta(days=1)).isoformat()
-            print(f"📅 Using last trade date + 1 day: {since}")
+            logger.info(f"📅 Incremental update from last trade date + 1 day: {since}")
         else:
+            # No existing trades, start from default (365+ days ago)
             since = default_since
+            logger.info(f"📅 No existing trades, using default since: {since} (365+ days)")
         
         until = datetime.now(timezone.utc).date().isoformat()
 
@@ -454,17 +507,16 @@ def refresh_trades(symbol: str, mode: str) -> str:
         data_dir.mkdir(parents=True, exist_ok=True)
         filename = data_dir / f"trades_final_{slug}_{mode_suffix}.csv"
         
-        # Use mode change detection from earlier
-        rebuild_completely = mode_change_detected or existing_trades.empty
+        # Determine if complete rebuild is needed
+        # Rebuild when: mode changed, no existing trades, or insufficient history (< 365 days)
+        rebuild_completely = mode_change_detected or existing_trades.empty or insufficient_history
         
         # Define standard columns early to avoid FutureWarning
         standard_cols = [
             "day_key","entry_time","side","entry_price","sl","tp","exit_time","exit_price","exit_reason","pnl_usdt","r_multiple","used_fallback","mode"
         ]
         
-        # Force rebuild for mode changes
-        rebuild_completely = mode_change_detected or existing_trades.empty
-        print(f"ℹ️  session mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
+        logger.info(f"ℹ️  session mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
 
         if rebuild_completely:
             print(f"🔄 Rebuilding completely for {symbol} {mode}")
@@ -549,19 +601,33 @@ def refresh_trades(symbol: str, mode: str) -> str:
             base_no_ext = filename.with_suffix("")
             sidecar_out = Path(str(base_no_ext) + "_meta.json")
             
-            # Calculate last_trade_date from actual trades
+            # Calculate last_trade_date and first_trade_date from actual trades
             last_trade_date = None
+            first_trade_date = None
+            actual_lookback_days = None
+            
             if not combined.empty and "entry_time" in combined.columns:
                 try:
-                    max_entry = pd.to_datetime(combined["entry_time"]).max()
+                    dates = pd.to_datetime(combined["entry_time"])
+                    max_entry = dates.max()
+                    min_entry = dates.min()
+                    
                     if pd.notna(max_entry):
                         last_trade_date = max_entry.date().isoformat()
-                except Exception:
-                    pass
+                    if pd.notna(min_entry):
+                        first_trade_date = min_entry.date().isoformat()
+                    
+                    # Calculate actual coverage in days
+                    if pd.notna(min_entry) and pd.notna(max_entry):
+                        actual_lookback_days = (max_entry.date() - min_entry.date()).days
+                except Exception as e:
+                    logger.warning(f"Could not calculate trade date range: {e}")
             
             meta_payload = {
                 "last_backtest_until": until,
                 "last_trade_date": last_trade_date,  # Last actual trade date
+                "first_trade_date": first_trade_date,  # First actual trade date
+                "actual_lookback_days": actual_lookback_days,  # Actual coverage in days
                 "last_update_attempt": datetime.now(timezone.utc).isoformat(),  # Track when we last tried
                 "symbol": symbol,
                 "mode": mode,
@@ -569,7 +635,10 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 "session_trading": config.get("session_trading", True),
                 "validation_results": results.validation_results if results is not None else None,
                 "is_strategy_suitable": results.is_strategy_suitable() if results is not None else None,
-                "backtest_start_date": (start_override or default_since),
+                "backtest_start_date": since,  # Actual 'since' used for this backtest
+                "configured_lookback_days": lb_days,  # Configured lookback (should be >= 365)
+                "total_trades": len(combined),  # Total trades in file
+                "rebuild_type": "complete" if rebuild_completely else "incremental",
                 "last_error": None if error_type is None else {
                     "type": error_type,
                     "detail": error_detail,

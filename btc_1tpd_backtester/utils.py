@@ -224,12 +224,89 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
         # Filter by date range (until_dt is exclusive upper bound)
         df = df[(df.index >= since_dt) & (df.index < until_dt)]
         
-        print(f"Retrieved {len(df)} candles for {symbol}")
+        # Standardize and validate OHLC columns
+        df = standardize_ohlc_columns(df)
+        is_valid, validation_msg = validate_data_integrity(df)
+        if not is_valid:
+            logger.warning(f"Data validation warning for {symbol}: {validation_msg}")
+        
+        logger.info(f"Retrieved {len(df)} candles for {symbol}")
         return df
         
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        logger.error(f"Error fetching data: {e}")
         return pd.DataFrame()
+
+
+def standardize_ohlc_columns(df):
+    """
+    Standardize OHLC column names and ensure all required columns exist.
+    
+    This function handles cases where:
+    - CCXT returns abbreviated column names (O, H, L, C, V)
+    - Columns might be in different cases (Open vs open)
+    - Some columns might be missing or None
+    
+    Args:
+        df: DataFrame with OHLCV data
+        
+    Returns:
+        DataFrame with standardized column names ['open', 'high', 'low', 'close', 'volume']
+    """
+    if df.empty:
+        return df
+    
+    # Mapping of possible column name variations to standard names
+    column_mappings = {
+        'open': ['open', 'Open', 'OPEN', 'O', 'o'],
+        'high': ['high', 'High', 'HIGH', 'H', 'h'],
+        'low': ['low', 'Low', 'LOW', 'L', 'l'],
+        'close': ['close', 'Close', 'CLOSE', 'C', 'c'],
+        'volume': ['volume', 'Volume', 'VOLUME', 'V', 'v', 'vol', 'Vol']
+    }
+    
+    # Rename columns to standard names
+    rename_dict = {}
+    for standard_name, variations in column_mappings.items():
+        for col in df.columns:
+            if col in variations and col != standard_name:
+                rename_dict[col] = standard_name
+                break
+    
+    if rename_dict:
+        df = df.rename(columns=rename_dict)
+        logger.debug(f"Renamed columns: {rename_dict}")
+    
+    # Ensure all required columns exist
+    required_columns = ['open', 'high', 'low', 'close', 'volume']
+    missing_columns = [col for col in required_columns if col not in df.columns]
+    
+    if missing_columns:
+        logger.error(f"Missing required OHLC columns after standardization: {missing_columns}")
+        raise ValueError(f"Missing required OHLC columns: {missing_columns}. Available columns: {list(df.columns)}")
+    
+    # Ensure numeric dtypes
+    for col in required_columns:
+        if df[col].dtype == object or df[col].dtype == 'O':
+            try:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                logger.warning(f"Column '{col}' was not numeric, converted with coercion")
+            except Exception as e:
+                logger.error(f"Failed to convert column '{col}' to numeric: {e}")
+                raise ValueError(f"Column '{col}' contains non-numeric data")
+    
+    # Fill any NaN values that resulted from coercion
+    if df[required_columns].isnull().any().any():
+        nan_counts = df[required_columns].isnull().sum()
+        logger.warning(f"Found NaN values after numeric conversion: {nan_counts.to_dict()}")
+        # Forward fill then backward fill to handle NaNs
+        df[required_columns] = df[required_columns].fillna(method='ffill').fillna(method='bfill')
+        remaining_nans = df[required_columns].isnull().sum().sum()
+        if remaining_nans > 0:
+            logger.error(f"Could not fill all NaN values: {remaining_nans} remaining")
+            raise ValueError(f"Data contains unfillable NaN values: {remaining_nans}")
+    
+    return df
 
 
 def _get_timeframe_ms(timeframe):
@@ -328,34 +405,84 @@ def get_previous_close(data, current_time):
 
 
 def validate_data_integrity(df, required_columns=['open', 'high', 'low', 'close', 'volume']):
-    """Validate data integrity and check for missing values."""
+    """
+    Comprehensive validation of OHLCV data integrity.
+    
+    Checks:
+    - Required columns presence
+    - Data types (numeric)
+    - NaN/Inf values
+    - Negative or zero prices
+    - OHLC relationships
+    - Index ordering
+    - Minimum data points
+    
+    Args:
+        df: DataFrame with OHLCV data
+        required_columns: List of required column names
+        
+    Returns:
+        tuple: (is_valid: bool, message: str)
+    """
     if df.empty:
         return False, "Data is empty"
+    
+    # Check minimum data points (at least 24 hours for 1h timeframe)
+    if len(df) < 24:
+        return False, f"Insufficient data: {len(df)} candles (minimum 24 required)"
     
     # Check required columns
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         return False, f"Missing columns: {missing_columns}"
     
+    # Check data types (must be numeric)
+    for col in required_columns:
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            return False, f"Column '{col}' is not numeric (dtype: {df[col].dtype})"
+    
     # Check for NaN values
     nan_counts = df[required_columns].isnull().sum()
     if nan_counts.any():
-        return False, f"NaN values found: {nan_counts.to_dict()}"
+        return False, f"NaN values found: {nan_counts[nan_counts > 0].to_dict()}"
     
-    # Check for negative prices
+    # Check for infinite values
+    inf_mask = df[required_columns].isin([np.inf, -np.inf])
+    if inf_mask.any().any():
+        inf_counts = inf_mask.sum()
+        return False, f"Infinite values found: {inf_counts[inf_counts > 0].to_dict()}"
+    
+    # Check for negative or zero prices
     price_columns = ['open', 'high', 'low', 'close']
-    negative_prices = (df[price_columns] <= 0).any()
-    if negative_prices.any():
-        return False, "Negative or zero prices found"
+    negative_or_zero_prices = (df[price_columns] <= 0).any()
+    if negative_or_zero_prices.any():
+        problematic_cols = [col for col in price_columns if (df[col] <= 0).any()]
+        return False, f"Negative or zero prices found in columns: {problematic_cols}"
     
-    # Check for negative volume
+    # Check for negative volume (allow zero volume for low-liquidity periods)
     if (df['volume'] < 0).any():
         return False, "Negative volume found"
     
-    # Check OHLC logic
-    invalid_ohlc = (df['high'] < df['low']) | (df['high'] < df['open']) | (df['high'] < df['close']) | (df['low'] > df['open']) | (df['low'] > df['close'])
-    if invalid_ohlc.any():
-        return False, "Invalid OHLC relationships found"
+    # Check OHLC logic (high must be >= all others, low must be <= all others)
+    invalid_high = (df['high'] < df['low']) | (df['high'] < df['open']) | (df['high'] < df['close'])
+    invalid_low = (df['low'] > df['open']) | (df['low'] > df['close']) | (df['low'] > df['high'])
+    
+    if invalid_high.any():
+        num_invalid = invalid_high.sum()
+        return False, f"Invalid OHLC: {num_invalid} candles where high < other prices"
+    
+    if invalid_low.any():
+        num_invalid = invalid_low.sum()
+        return False, f"Invalid OHLC: {num_invalid} candles where low > other prices"
+    
+    # Check index ordering (must be sorted chronologically)
+    if not df.index.is_monotonic_increasing:
+        return False, "Index is not sorted in chronological order"
+    
+    # Check for duplicate timestamps
+    if df.index.duplicated().any():
+        num_dupes = df.index.duplicated().sum()
+        return False, f"Duplicate timestamps found: {num_dupes} duplicates"
     
     return True, "Data validation passed"
 
