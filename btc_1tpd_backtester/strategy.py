@@ -2,18 +2,27 @@
 Trading Strategy Module
 Implements the 1 trade per day BTC strategy with ORB and fallback logic.
 Now supports delegation to MultifactorStrategy.
+Includes WindowedSignalStrategy for windowed daily quota implementation.
 """
 
 import pandas as pd
 import numpy as np
+import logging
 from datetime import datetime, timezone, timedelta
 from .indicators import (
     ema, atr, adx, vwap, opening_range_high, opening_range_low,
     opening_range_breakout, engulfing_pattern, volume_confirmation,
     calculate_r_multiple, get_macro_bias, is_trading_session,
-    is_entry_window, is_orb_window
+    is_entry_window, is_orb_window, rsi, macd
 )
 from .strategy_multifactor import MultifactorStrategy
+
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
 
 
 class TradingStrategy:
@@ -445,3 +454,178 @@ class TradingStrategy:
         except Exception as e:
             print(f"Error calculating PnL: {e}")
             return 0.0
+
+
+class WindowedSignalStrategy:
+    """Window-aware signal generator with daily quota management. Encapsulates configuration for entry windows, timezone, and risk sizing. Implements pure signal generation with EMA/RSI/MACD alignment and ATR-based stops."""
+    MAX_TRADES_PER_DAY = 1
+    DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires'
+    DEFAULT_ENTRY_WINDOWS = [(5, 8), (11, 14)]
+    DEFAULT_ATR_MULTIPLIER = 2.0
+    DEFAULT_RISK_REWARD_RATIO = 1.5
+    DEFAULT_EMA_FAST = 9
+    DEFAULT_EMA_SLOW = 21
+    DEFAULT_RSI_PERIOD = 14
+    DEFAULT_ATR_PERIOD = 14
+    def __init__(self, config: dict):
+        """Initialize windowed signal strategy with configuration. Args: config: Dictionary containing entry_windows (list of tuples), timezone (str), risk_usdt (float), leverage (float), atr_multiplier (float), risk_reward_ratio (float), ema_fast (int), ema_slow (int), rsi_period (int), atr_period (int)"""
+        self.config = config
+        self.entry_windows = config.get('entry_windows', self.DEFAULT_ENTRY_WINDOWS)
+        self.timezone_str = config.get('timezone', self.DEFAULT_TIMEZONE)
+        try:
+            self.local_tz = ZoneInfo(self.timezone_str)
+        except Exception as e:
+            logger.warning(f"Failed to load timezone {self.timezone_str}, falling back to UTC: {e}")
+            self.local_tz = timezone.utc
+        self.risk_usdt = config.get('risk_usdt', 20.0)
+        self.leverage = config.get('leverage', 1.0)
+        self.initial_capital = config.get('initial_capital', 1000.0)
+        self.atr_multiplier = config.get('atr_multiplier', self.DEFAULT_ATR_MULTIPLIER)
+        self.risk_reward_ratio = config.get('risk_reward_ratio', self.DEFAULT_RISK_REWARD_RATIO)
+        self.ema_fast = config.get('ema_fast', self.DEFAULT_EMA_FAST)
+        self.ema_slow = config.get('ema_slow', self.DEFAULT_EMA_SLOW)
+        self.rsi_period = config.get('rsi_period', self.DEFAULT_RSI_PERIOD)
+        self.atr_period = config.get('atr_period', self.DEFAULT_ATR_PERIOD)
+        self._market_data = None
+        self._indicator_frame = None
+        self._daily_trade_counts = {}
+        logger.info(f"WindowedSignalStrategy initialized with windows={self.entry_windows}, tz={self.timezone_str}, risk={self.risk_usdt}")
+    def _to_local(self, dt: datetime) -> datetime:
+        """Convert UTC datetime to local timezone (ART). Args: dt: UTC datetime. Returns: datetime in local timezone"""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(self.local_tz)
+    def set_market_data(self, data: pd.DataFrame):
+        """Sort incoming OHLCV data and pre-compute indicators. Args: data: DataFrame with OHLCV columns and datetime index"""
+        self._market_data = data.sort_index()
+        self._prepare_indicator_frame()
+        logger.debug(f"Market data set: {len(self._market_data)} bars, date range {self._market_data.index[0]} to {self._market_data.index[-1]}")
+    def _prepare_indicator_frame(self):
+        """Pre-compute EMA, RSI, MACD, and ATR columns on the market data."""
+        if self._market_data is None or self._market_data.empty:
+            self._indicator_frame = None
+            return
+        df = self._market_data.copy()
+        df['ema_fast'] = ema(df, self.ema_fast)
+        df['ema_slow'] = ema(df, self.ema_slow)
+        df['rsi'] = rsi(df, self.rsi_period)
+        macd_result = macd(df)
+        if isinstance(macd_result, tuple) and len(macd_result) >= 2:
+            df['macd'] = macd_result[0]
+            df['macd_signal'] = macd_result[1]
+        else:
+            df['macd'] = macd_result if isinstance(macd_result, pd.Series) else pd.Series(index=df.index, dtype=float)
+            df['macd_signal'] = pd.Series(index=df.index, dtype=float)
+        df['atr'] = atr(df, self.atr_period)
+        self._indicator_frame = df
+        logger.debug(f"Indicators computed: EMA({self.ema_fast}/{self.ema_slow}), RSI({self.rsi_period}), MACD, ATR({self.atr_period})")
+    def _reset_counter_if_needed(self, dt: datetime):
+        """Reset daily trade counter if a new local calendar day has started. Args: dt: Current datetime (UTC)"""
+        local_dt = self._to_local(dt)
+        local_date = local_dt.date()
+        if local_date not in self._daily_trade_counts:
+            for existing_date in list(self._daily_trade_counts.keys()):
+                if existing_date < local_date:
+                    del self._daily_trade_counts[existing_date]
+            self._daily_trade_counts[local_date] = 0
+            logger.debug(f"Daily counter reset for {local_date}")
+    def record_trade(self, dt: datetime):
+        """Record that a trade was executed on this local calendar day. Args: dt: Trade datetime (UTC)"""
+        local_dt = self._to_local(dt)
+        local_date = local_dt.date()
+        self._daily_trade_counts[local_date] = self._daily_trade_counts.get(local_date, 0) + 1
+        logger.debug(f"Trade recorded for {local_date}, count now {self._daily_trade_counts[local_date]}")
+    def is_time_in_entry_window(self, dt: datetime) -> bool:
+        """Check if the given datetime falls within any configured entry window. Args: dt: Datetime to check (UTC). Returns: True if within entry window, False otherwise"""
+        local_dt = self._to_local(dt)
+        local_hour = local_dt.hour
+        for window_start, window_end in self.entry_windows:
+            if window_start <= local_hour < window_end:
+                return True
+        return False
+    def can_trade_today(self, dt: datetime) -> bool:
+        """Check if we can still trade today based on daily quota. Args: dt: Current datetime (UTC). Returns: True if daily quota not reached, False otherwise"""
+        self._reset_counter_if_needed(dt)
+        local_dt = self._to_local(dt)
+        local_date = local_dt.date()
+        count = self._daily_trade_counts.get(local_date, 0)
+        can_trade = count < self.MAX_TRADES_PER_DAY
+        if not can_trade:
+            logger.debug(f"Daily quota reached for {local_date}: {count}/{self.MAX_TRADES_PER_DAY}")
+        return can_trade
+    def compute_position_size(self, entry_price: float, stop_loss: float) -> float:
+        """Calculate position size honouring per-trade risk budgets and leverage caps. Args: entry_price: Entry price, stop_loss: Stop loss price. Returns: Position size in base currency"""
+        if entry_price <= 0 or stop_loss <= 0:
+            return 0.0
+        risk_distance = abs(entry_price - stop_loss)
+        if risk_distance == 0:
+            return 0.0
+        position_size_by_risk = self.risk_usdt / risk_distance
+        max_position_by_capital = (self.initial_capital * self.leverage) / entry_price
+        position_size = min(position_size_by_risk, max_position_by_capital)
+        return max(position_size, 0.0)
+    def generate_signal(self, index: int) -> dict:
+        """Generate pure trading signal at given index. Uses EMA/RSI/MACD alignment rules first, falls back to simple momentum when indicators unavailable. Args: index: Integer index into indicator frame. Returns: dict with keys: side (str), entry_price (float), sl (float), tp (float), reason (str), valid (bool)"""
+        if self._indicator_frame is None or index >= len(self._indicator_frame) or index < 0:
+            logger.debug(f"Invalid signal generation: index={index}, frame_len={len(self._indicator_frame) if self._indicator_frame is not None else 0}")
+            return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'no_data', 'valid': False}
+        row = self._indicator_frame.iloc[index]
+        entry_price = row['close']
+        atr_value = row['atr']
+        ema_fast_val = row['ema_fast']
+        ema_slow_val = row['ema_slow']
+        rsi_val = row['rsi']
+        macd_val = row['macd']
+        macd_signal_val = row['macd_signal']
+        if pd.isna(entry_price) or entry_price <= 0:
+            logger.debug(f"signal_generation_failed: invalid entry_price={entry_price}")
+            return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'invalid_price', 'valid': False}
+        has_indicators = not pd.isna(ema_fast_val) and not pd.isna(ema_slow_val) and not pd.isna(rsi_val) and not pd.isna(macd_val) and not pd.isna(macd_signal_val)
+        if has_indicators:
+            bullish = (ema_fast_val > ema_slow_val) and (rsi_val < 70) and (macd_val > macd_signal_val)
+            bearish = (ema_fast_val < ema_slow_val) and (rsi_val > 30) and (macd_val < macd_signal_val)
+            if bullish:
+                side = 'long'
+                reason = 'ema_rsi_macd_bullish'
+            elif bearish:
+                side = 'short'
+                reason = 'ema_rsi_macd_bearish'
+            else:
+                logger.debug(f"no_alignment: ema_fast={ema_fast_val:.2f}, ema_slow={ema_slow_val:.2f}, rsi={rsi_val:.1f}, macd={macd_val:.2f}, signal={macd_signal_val:.2f}")
+                return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'no_alignment', 'valid': False}
+        else:
+            if index > 0:
+                prev_close = self._indicator_frame.iloc[index - 1]['close']
+                if not pd.isna(prev_close) and prev_close > 0:
+                    if entry_price > prev_close:
+                        side = 'long'
+                        reason = 'momentum_fallback_bullish'
+                    elif entry_price < prev_close:
+                        side = 'short'
+                        reason = 'momentum_fallback_bearish'
+                    else:
+                        logger.debug(f"fallback_no_momentum: entry_price={entry_price}, prev_close={prev_close}")
+                        return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'no_momentum', 'valid': False}
+                else:
+                    logger.debug(f"fallback_invalid_prev_close: prev_close={prev_close}")
+                    return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'invalid_prev_data', 'valid': False}
+            else:
+                logger.debug(f"fallback_insufficient_history: index={index}")
+                return {'side': None, 'entry_price': None, 'sl': None, 'tp': None, 'reason': 'insufficient_history', 'valid': False}
+        if pd.isna(atr_value) or atr_value <= 0:
+            default_atr = entry_price * 0.02
+            logger.warning(f"Invalid ATR={atr_value}, using default 2% of price: {default_atr}")
+            atr_value = default_atr
+        stop_distance = atr_value * self.atr_multiplier
+        if side == 'long':
+            sl = entry_price - stop_distance
+            tp = entry_price + (stop_distance * self.risk_reward_ratio)
+        else:
+            sl = entry_price + stop_distance
+            tp = entry_price - (stop_distance * self.risk_reward_ratio)
+        if sl <= 0 or tp <= 0:
+            logger.warning(f"Invalid stop/target: sl={sl}, tp={tp}, using fallback")
+            sl = entry_price * 0.98 if side == 'long' else entry_price * 1.02
+            tp = entry_price * 1.03 if side == 'long' else entry_price * 0.97
+        logger.debug(f"signal_generated: side={side}, entry={entry_price:.2f}, sl={sl:.2f}, tp={tp:.2f}, reason={reason}")
+        return {'side': side, 'entry_price': entry_price, 'sl': sl, 'tp': tp, 'reason': reason, 'valid': True}
