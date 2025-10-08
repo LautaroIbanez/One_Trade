@@ -202,6 +202,35 @@ MODE_CONFIG = {
 }
 
 
+def determine_price_date_range(symbol: str, since_date: str | None = None, lookback_days: int = 365) -> tuple[datetime, datetime]:
+    """Guarantee the historical price chart always covers at least lookback_days (default 365), regardless of current mode or inversion state. Args: symbol: Trading symbol (e.g., 'BTC/USDT:USDT'), since_date: Optional ISO date string to use as start_date (will be expanded if too recent), lookback_days: Minimum number of days to cover (default 365). Returns: Tuple of (start_date, end_date) as timezone-aware datetimes in UTC."""
+    end_date = datetime.now(timezone.utc)
+    if since_date is None:
+        start_date = end_date - timedelta(days=lookback_days)
+    else:
+        try:
+            start_date = datetime.fromisoformat(since_date).replace(tzinfo=timezone.utc) if datetime.fromisoformat(since_date).tzinfo is None else datetime.fromisoformat(since_date).astimezone(timezone.utc)
+        except Exception as e:
+            logger.warning(f"Invalid since_date '{since_date}': {e}, falling back to {lookback_days} days ago")
+            start_date = end_date - timedelta(days=lookback_days)
+    days_diff = (end_date.date() - start_date.date()).days
+    if days_diff < lookback_days:
+        logger.info(f"Expanding date range from {days_diff} days to {lookback_days} days for {symbol}")
+        start_date = end_date - timedelta(days=lookback_days)
+    logger.info(f"Price chart date range for {symbol}: {start_date.date().isoformat()} to {end_date.date().isoformat()} ({(end_date.date() - start_date.date()).days} days)")
+    return start_date, end_date
+
+
+def build_candle_analysis_tasks(mode: str, inverted: bool = False) -> list[dict]:
+    """Provide users with a dashboard card summarizing year-long candle review actions based on the selected mode and whether the strategy is inverted. Args: mode: Trading mode ('conservative', 'moderate', 'aggressive'), inverted: If True, adjust language for inverted strategy. Returns: List of dictionaries with 'title', 'description', and 'priority' fields."""
+    inversion_note = " (estrategia invertida)" if inverted else ""
+    base_tasks = [{"title": "Validar cobertura de datos", "description": f"Confirmar que el gráfico de precios muestra al menos 365 días de historia para análisis estadísticamente significativo{inversion_note}.", "priority": 1}, {"title": "Revisar patrones de largo plazo", "description": f"Identificar tendencias anuales, soportes/resistencias clave y eventos de mercado significativos{inversion_note}.", "priority": 2}]
+    mode_tasks = {"conservative": [{"title": "Analizar zonas de sobrecompra/sobreventa anuales", "description": f"Revisar Bollinger Bands y RSI en gráfico anual para identificar zonas extremas{inversion_note}.", "priority": 2}, {"title": "Validar eficacia de reversión a la media", "description": f"Confirmar que la estrategia de reversión captura rebounds en zonas de sobreventa históricas{inversion_note}.", "priority": 3}], "moderate": [{"title": "Identificar tendencias dominantes anuales", "description": f"Analizar EMA 9/21 y ADX en timeframe anual para detectar fases alcistas/bajistas{inversion_note}.", "priority": 2}, {"title": "Evaluar consistencia de seguimiento de tendencia", "description": f"Verificar que las señales de Heikin Ashi se alineen con tendencias anuales confirmadas{inversion_note}.", "priority": 3}], "aggressive": [{"title": "Mapear breakouts y fakeouts históricos", "description": f"Revisar gráfico anual para identificar breakouts que fallaron y fueron faded exitosamente{inversion_note}.", "priority": 2}, {"title": "Analizar volatilidad extrema anual", "description": f"Estudiar eventos de RSI extremo (≥80/≤20) y Bollinger extremos en contexto anual{inversion_note}.", "priority": 3}]}
+    mode_specific = mode_tasks.get(mode.lower(), mode_tasks["moderate"])
+    all_tasks = base_tasks + mode_specific
+    return all_tasks
+
+
 def get_effective_config(symbol: str, mode: str) -> dict:
     """
     Return merged BASE_CONFIG with selected mode overrides. Uses session trading only.
@@ -1085,16 +1114,18 @@ def figure_win_loss(trades: pd.DataFrame):
     return fig
 
 
-def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "1h", today_recommendation: dict = None):
-    if trades.empty or fetch_historical_data is None:
+def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "1h", today_recommendation: dict = None, mode: str = "moderate"):
+    if fetch_historical_data is None:
         return go.Figure()
     try:
-        df = trades.copy()
-        df["entry_time"] = pd.to_datetime(df["entry_time"])  # ensure
-        start_date = df["entry_time"].min().date().isoformat()
-        end_date = df["entry_time"].max().date().isoformat()
-
-        # Try original symbol first; if empty, try without futures settle suffix
+        since_date = None
+        if not trades.empty:
+            df = trades.copy()
+            df["entry_time"] = pd.to_datetime(df["entry_time"])
+            since_date = df["entry_time"].min().date().isoformat()
+        start_date_dt, end_date_dt = determine_price_date_range(symbol, since_date, lookback_days=365)
+        start_date = start_date_dt.date().isoformat()
+        end_date = end_date_dt.date().isoformat()
         price = fetch_historical_data(symbol, start_date, end_date, timeframe)
         if price is None or price.empty:
             alt_symbol = symbol.replace(":USDT", "") if ":USDT" in symbol else symbol
@@ -1103,7 +1134,7 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
             return go.Figure()
         price = price.copy()
         price = price.reset_index().rename(columns={"timestamp": "time"}) if "timestamp" in price.columns else price.reset_index(names=["time"]) 
-        fig = px.line(price, x="time", y="close", title=f"{symbol} Price with Trades")
+        fig = px.line(price, x="time", y="close", title=f"{symbol} Price with Trades (365+ days)")
         
         # Add horizontal lines for today's recommendation levels
         if today_recommendation:
@@ -1252,6 +1283,25 @@ def create_app():
             dbc.CardBody(id="today-reco"),
         ], className="mb-4"),
         
+        # Annual Candle Analysis Tasks - Collapsible
+        dbc.Card([
+            dbc.CardHeader([
+                html.Div([
+                    html.Button([
+                        html.I(className="bi bi-bar-chart-line me-2"),
+                        html.Span("Tareas de Análisis Anual", id="candle-tasks-header")
+                    ], className="btn btn-link text-decoration-none text-dark p-0", id="candle-tasks-collapse-button"),
+                    dbc.Badge("365+ días", color="info", className="ms-2")
+                ], className="d-flex align-items-center")
+            ]),
+            dbc.Collapse([
+                dbc.CardBody([
+                    html.P("Revise estas tareas para validar la estrategia con al menos un año de datos históricos:", className="text-muted mb-3"),
+                    html.Div(id="candle-analysis-tasks")
+                ])
+            ], id="candle-tasks-collapse", is_open=False)
+        ], className="mb-4", id="candle-tasks-panel"),
+        
         # Strategy Description Panel - Collapsible
         dbc.Card([
             dbc.CardHeader([
@@ -1359,6 +1409,46 @@ def create_app():
         if n_clicks:
             return not is_open
         return is_open
+    
+    @app.callback(
+        Output("candle-tasks-collapse", "is_open"),
+        Input("candle-tasks-collapse-button", "n_clicks"),
+        State("candle-tasks-collapse", "is_open"),
+        prevent_initial_call=True,
+    )
+    def toggle_candle_tasks_collapse(n_clicks, is_open):
+        """Toggle candle analysis tasks panel collapse."""
+        if n_clicks:
+            return not is_open
+        return is_open
+    
+    @app.callback(
+        Output("candle-analysis-tasks", "children"),
+        Input("investment-mode", "value"),
+        Input("inversion-state", "data"),
+    )
+    def update_candle_analysis_tasks(mode, inversion_state):
+        """Update candle analysis tasks based on mode and inversion state."""
+        if not mode:
+            mode = "moderate"
+        is_inverted = inversion_state.get("inverted", False) if inversion_state else False
+        tasks = build_candle_analysis_tasks(mode, is_inverted)
+        priority_colors = {1: "danger", 2: "warning", 3: "info"}
+        task_elements = []
+        for task in tasks:
+            task_card = dbc.Card([
+                dbc.CardBody([
+                    html.Div([
+                        html.H6([
+                            task["title"],
+                            dbc.Badge(f"P{task['priority']}", color=priority_colors.get(task["priority"], "secondary"), className="ms-2", pill=True)
+                        ], className="mb-2"),
+                        html.P(task["description"], className="text-muted mb-0 small")
+                    ])
+                ])
+            ], className="mb-2", color="light")
+            task_elements.append(task_card)
+        return task_elements
 
     @app.callback(
         Output("symbol-dropdown", "options"),
@@ -1787,7 +1877,7 @@ def create_app():
         tl = figure_trade_timeline(trades_display)
         mon = figure_monthly_performance(trades_display)
         wl = figure_win_loss(trades_display)
-        price_fig = figure_trades_on_price(trades_display, symbol, timeframe="1h", today_recommendation=today_recommendation)
+        price_fig = figure_trades_on_price(trades_display, symbol, timeframe="1h", today_recommendation=today_recommendation, mode=mode or "moderate")
         
         # Prepare table data
         table_data = []

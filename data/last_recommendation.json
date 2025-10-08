@@ -1,15 +1,15 @@
 {
   "status": "signal",
   "symbol": "BTC/USDT:USDT",
-  "date": "2025-10-07",
+  "date": "2025-10-08",
   "macro_bias": "neutral",
   "side": "long",
-  "entry_time": "2025-10-07T11:00:00+00:00",
-  "entry_price": 124229.9,
-  "orb_high": 123948.7,
-  "orb_low": 123261.6,
+  "entry_time": "2025-10-08T11:00:00+00:00",
+  "entry_price": 122885.7,
+  "orb_high": 122820.0,
+  "orb_low": 121468.5,
   "notes": "ORB breakout detected",
   "from_cache": false,
-  "stop_loss": 124134.72285714286,
-  "take_profit": 124372.6657142857
+  "stop_loss": 122725.68,
+  "take_profit": 123125.73000000001
 }
