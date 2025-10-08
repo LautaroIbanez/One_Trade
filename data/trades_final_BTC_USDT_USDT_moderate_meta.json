@@ -3,7 +3,7 @@
   "last_trade_date": "2025-10-08",
   "first_trade_date": "2025-10-08",
   "actual_lookback_days": 0,
-  "last_update_attempt": "2025-10-08T15:52:45.714315+00:00",
+  "last_update_attempt": "2025-10-08T18:48:02.206474+00:00",
   "symbol": "BTC/USDT:USDT",
   "mode": "moderate",
   "full_day_trading": false,
@@ -17,6 +17,6 @@
   "last_error": {
     "type": "general",
     "detail": "'close'",
-    "timestamp": "2025-10-08T15:52:45.714315+00:00"
+    "timestamp": "2025-10-08T18:48:02.206474+00:00"
   }
 }
