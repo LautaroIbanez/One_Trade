@@ -80,5 +80,5 @@ def determine_signal_banner(today_signal: Optional[Dict], open_position_side: Op
         logger.debug(f"signal_aligned: signal_side={signal_side}, position_side={open_position_side}, level=ok")
         return {'level': 'ok', 'message': f'Signal {signal_side.upper()} aligns with open {open_position_side.upper()} position'}
     logger.warning(f"signal_reversal: signal_side={signal_side}, position_side={open_position_side}, level=warning")
-    return {'level': 'warning', 'message': f'⚠️ Reversal signal: {signal_side.upper()} suggested but {open_position_side.upper()} position open'}
+    return {'level': 'warning', 'message': f'[WARN] Reversal signal: {signal_side.upper()} suggested but {open_position_side.upper()} position open'}
 

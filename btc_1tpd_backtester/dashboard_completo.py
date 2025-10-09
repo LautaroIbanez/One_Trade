@@ -39,14 +39,14 @@ def crear_dashboard_completo():
     
     # Crear figura con subplots - MÁS GRÁFICOS Y MÁS COMPACTO
     fig = plt.figure(figsize=(22, 16))
-    fig.suptitle('📊 DASHBOARD COMPLETO - BACKTESTING BTC 1TPD', fontsize=18, fontweight='bold', y=0.96)
+    fig.suptitle('[DATA] DASHBOARD COMPLETO - BACKTESTING BTC 1TPD', fontsize=18, fontweight='bold', y=0.96)
     
     # 1. Equity Curve (Gráfico principal)
     ax1 = plt.subplot(3, 4, (1, 3))  # Ocupa 3 columnas
     ax1.plot(df_sorted['exit_time'], df_sorted['pnl_acumulado'], linewidth=2.5, color='#2E8B57', alpha=0.8)
     ax1.fill_between(df_sorted['exit_time'], df_sorted['pnl_acumulado'], alpha=0.3, color='#2E8B57')
     ax1.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=2)
-    ax1.set_title('💰 EQUITY CURVE', fontsize=12, fontweight='bold', pad=8)
+    ax1.set_title('[MONEY] EQUITY CURVE', fontsize=12, fontweight='bold', pad=8)
     ax1.set_ylabel('PnL Acumulado (USDT)', fontsize=10)
     ax1.tick_params(axis='both', labelsize=9)
     ax1.grid(True, alpha=0.3)
@@ -55,18 +55,18 @@ def crear_dashboard_completo():
     # 2. Métricas de Rendimiento (Panel compacto)
     ax2 = plt.subplot(3, 4, 4)
     ax2.axis('off')
-    metricas_texto = f"""📊 MÉTRICAS
+    metricas_texto = f"""[DATA] MÉTRICAS
 
-🎯 Trades: {total_trades}
-✅ Ganadores: {trades_ganadores}
-❌ Perdedores: {trades_perdedores}
-📈 Win Rate: {win_rate:.1f}%
+[TARGET] Trades: {total_trades}
+[OK] Ganadores: {trades_ganadores}
+[ERROR] Perdedores: {trades_perdedores}
+[CHART] Win Rate: {win_rate:.1f}%
 
-💰 PnL Total: {pnl_total:.2f} USDT
-📊 Promedio: {pnl_promedio:.2f} USDT
+[MONEY] PnL Total: {pnl_total:.2f} USDT
+[DATA] Promedio: {pnl_promedio:.2f} USDT
 🎲 R-Múltiple: {r_multiple_promedio:.2f}
 
-📉 Max DD: {max_drawdown:.2f} USDT
+[LOSS] Max DD: {max_drawdown:.2f} USDT
 📅 {df['day_key'].min().strftime('%Y-%m')} a {df['day_key'].max().strftime('%Y-%m')}"""
     ax2.text(0.05, 0.95, metricas_texto, transform=ax2.transAxes, fontsize=9, 
              verticalalignment='top', fontfamily='monospace',
@@ -78,7 +78,7 @@ def crear_dashboard_completo():
     ax3.hist(df['r_multiple'], bins=bins, alpha=0.7, color='#FF6B6B', edgecolor='black', linewidth=0.8)
     ax3.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=1.5)
     ax3.axvline(x=r_multiple_promedio, color='green', linestyle='-', linewidth=1.5, label=f'Prom: {r_multiple_promedio:.2f}')
-    ax3.set_title('📈 R-MÚLTIPLES', fontsize=10, fontweight='bold', pad=6)
+    ax3.set_title('[CHART] R-MÚLTIPLES', fontsize=10, fontweight='bold', pad=6)
     ax3.set_xlabel('R-Múltiple', fontsize=9)
     ax3.set_ylabel('Frecuencia', fontsize=9)
     ax3.tick_params(axis='both', labelsize=8)
@@ -105,7 +105,7 @@ def crear_dashboard_completo():
     colors = ['#4CAF50', '#F44336']
     wedges, texts, autotexts = ax5.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
                                       startangle=90, textprops={'fontsize': 8})
-    ax5.set_title('🎯 GANADORES VS PERDEDORES', fontsize=10, fontweight='bold', pad=6)
+    ax5.set_title('[TARGET] GANADORES VS PERDEDORES', fontsize=10, fontweight='bold', pad=6)
     
     # 6. PnL por Trade
     ax6 = plt.subplot(3, 4, 8)
@@ -123,7 +123,7 @@ def crear_dashboard_completo():
     ax7.hist(df['pnl_usdt'], bins=15, alpha=0.7, color='#9C27B0', edgecolor='black', linewidth=0.8)
     ax7.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=1.5)
     ax7.axvline(x=pnl_promedio, color='green', linestyle='-', linewidth=1.5, label=f'Prom: {pnl_promedio:.2f}')
-    ax7.set_title('📊 DISTRIBUCIÓN PnL', fontsize=10, fontweight='bold', pad=6)
+    ax7.set_title('[DATA] DISTRIBUCIÓN PnL', fontsize=10, fontweight='bold', pad=6)
     ax7.set_xlabel('PnL (USDT)', fontsize=9)
     ax7.set_ylabel('Frecuencia', fontsize=9)
     ax7.tick_params(axis='both', labelsize=8)
@@ -159,7 +159,7 @@ def crear_dashboard_completo():
     # 10. Drawdown
     ax10 = plt.subplot(3, 4, 12)
     ax10.fill_between(df_sorted['exit_time'], df_sorted['drawdown'], alpha=0.7, color='#FF4444')
-    ax10.set_title('📉 DRAWDOWN', fontsize=10, fontweight='bold', pad=6)
+    ax10.set_title('[LOSS] DRAWDOWN', fontsize=10, fontweight='bold', pad=6)
     ax10.set_ylabel('Drawdown (USDT)', fontsize=9)
     ax10.tick_params(axis='both', labelsize=8)
     ax10.tick_params(axis='x', rotation=45)
@@ -173,8 +173,8 @@ def crear_dashboard_completo():
     plt.savefig('dashboard_completo.png', dpi=300, bbox_inches='tight', facecolor='white')
     plt.show()
     
-    print("🎉 Dashboard completo creado y guardado como 'dashboard_completo.png'")
-    print(f"📊 Resumen: {total_trades} trades, {win_rate:.1f}% win rate, {pnl_total:.2f} USDT total")
+    print("[CELEBRATE] Dashboard completo creado y guardado como 'dashboard_completo.png'")
+    print(f"[DATA] Resumen: {total_trades} trades, {win_rate:.1f}% win rate, {pnl_total:.2f} USDT total")
 
 if __name__ == "__main__":
     crear_dashboard_completo()

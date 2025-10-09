@@ -161,9 +161,9 @@ class BacktestResults:
     def get_validation_summary(self) -> str:
         """Get human-readable validation summary."""
         if self.validation_results['is_valid']:
-            summary = "✅ Strategy PASSED validation"
+            summary = "[OK] Strategy PASSED validation"
         else:
-            summary = "❌ Strategy FAILED validation"
+            summary = "[ERROR] Strategy FAILED validation"
         
         if self.validation_results['failed_validations']:
             summary += "\nFailed validations:"
@@ -180,7 +180,7 @@ class BacktestResults:
     def display_summary(self):
         """Display comprehensive backtest summary."""
         print("\n" + "=" * 60)
-        print("📊 BACKTEST RESULTS SUMMARY")
+        print("[DATA] BACKTEST RESULTS SUMMARY")
         print("=" * 60)
         
         # Basic metrics
@@ -198,14 +198,14 @@ class BacktestResults:
         
         # Validation results
         print("\n" + "=" * 60)
-        print("🔍 VALIDATION RESULTS")
+        print("[SEARCH2] VALIDATION RESULTS")
         print("=" * 60)
         print(self.get_validation_summary())
         
         # Strategy breakdown
         if not self.trades_df.empty:
             print("\n" + "=" * 60)
-            print("📈 STRATEGY BREAKDOWN")
+            print("[CHART] STRATEGY BREAKDOWN")
             print("=" * 60)
             
             if 'strategy_used' in self.trades_df.columns:
@@ -415,7 +415,7 @@ class Backtester:
     def display_summary(self):
         """Display backtest summary statistics (legacy method)."""
         if not self.trades:
-            print("\n❌ No trades generated during backtest period.")
+            print("\n[ERROR] No trades generated during backtest period.")
             return
         
         trades_df = pd.DataFrame(self.trades)
@@ -455,7 +455,7 @@ class Backtester:
         
         # Display summary
         print("\n" + "=" * 50)
-        print("📊 BACKTEST SUMMARY")
+        print("[DATA] BACKTEST SUMMARY")
         print("=" * 50)
         print(f"Total Trades: {total_trades}")
         print(f"Win Rate: {win_rate:.1f}% ({winning_trades}/{total_trades})")

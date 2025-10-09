@@ -28,7 +28,7 @@ def test_base_config_has_365_days():
     
     assert BASE_CONFIG['lookback_days'] == 365, f"BASE_CONFIG should have 365 lookback_days, got {BASE_CONFIG['lookback_days']}"
     
-    print("✅ BASE_CONFIG has 365 days")
+    print("[OK] BASE_CONFIG has 365 days")
 
 
 def test_get_effective_config_enforces_minimum():
@@ -42,9 +42,9 @@ def test_get_effective_config_enforces_minimum():
         assert 'lookback_days' in config, f"Config should have lookback_days for {mode}"
         assert config['lookback_days'] >= 365, f"Config for {mode} should have >= 365 lookback_days, got {config['lookback_days']}"
         
-        print(f"  ✅ {mode}: {config['lookback_days']} days")
+        print(f"  [OK] {mode}: {config['lookback_days']} days")
     
-    print("✅ get_effective_config enforces 365-day minimum")
+    print("[OK] get_effective_config enforces 365-day minimum")
 
 
 def test_backtest_start_date_adjustment():
@@ -71,13 +71,13 @@ def test_backtest_start_date_adjustment():
             days_diff = (today - start_date).days
             
             assert days_diff >= 365, f"backtest_start_date should be >= 365 days ago, got {days_diff} days"
-            print(f"  ✅ Adjusted from 30 days to {days_diff} days")
+            print(f"  [OK] Adjusted from 30 days to {days_diff} days")
         
     finally:
         # Restore original config
         MODE_CONFIG['moderate'] = original_moderate
     
-    print("✅ backtest_start_date adjustment test passed")
+    print("[OK] backtest_start_date adjustment test passed")
 
 
 def test_insufficient_history_detection():
@@ -116,10 +116,10 @@ def test_insufficient_history_detection():
     coverage = (today - earliest).days
     
     assert coverage < 365, f"Test data should have < 365 days coverage, got {coverage}"
-    print(f"  ✅ Test data has {coverage} days coverage (< 365)")
+    print(f"  [OK] Test data has {coverage} days coverage (< 365)")
     
     # This would trigger insufficient_history flag in refresh_trades
-    print("✅ Insufficient history detection logic correct")
+    print("[OK] Insufficient history detection logic correct")
 
 
 def test_metadata_fields():
@@ -146,7 +146,7 @@ def test_metadata_fields():
     for field in required_fields:
         print(f"    - {field}")
     
-    print("✅ Metadata fields specification complete")
+    print("[OK] Metadata fields specification complete")
 
 
 def main():

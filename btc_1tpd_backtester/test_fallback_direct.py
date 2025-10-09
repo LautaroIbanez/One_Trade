@@ -131,7 +131,7 @@ def test_fallback_improvements():
     detected_direction = strategy.detect_fallback_direction(bullish_session)
     print(f"   Bullish session detected direction: {detected_direction}")
     assert detected_direction == 'long', f"Expected 'long', got '{detected_direction}'"
-    print("   ✅ PASSED")
+    print("   [OK] PASSED")
     
     # Test 2: Direction detection for bearish session
     print("\n2. Testing direction detection for bearish session...")
@@ -139,7 +139,7 @@ def test_fallback_improvements():
     detected_direction = strategy.detect_fallback_direction(bearish_session)
     print(f"   Bearish session detected direction: {detected_direction}")
     assert detected_direction == 'short', f"Expected 'short', got '{detected_direction}'"
-    print("   ✅ PASSED")
+    print("   [OK] PASSED")
     
     # Test 3: Entry time selection for high range session
     print("\n3. Testing entry time selection for high range session...")
@@ -149,7 +149,7 @@ def test_fallback_improvements():
     print(f"   Selected time: {selected_time}")
     print(f"   Expected time: {expected_time}")
     assert selected_time == expected_time, f"Expected {expected_time}, got {selected_time}"
-    print("   ✅ PASSED")
+    print("   [OK] PASSED")
     
     # Test 4: Full fallback trade with bullish session
     print("\n4. Testing full fallback trade with bullish session...")
@@ -173,7 +173,7 @@ def test_fallback_improvements():
     
     assert trade['used_fallback'] == True, "Trade should be marked as fallback"
     assert trade['side'] == 'long', f"Expected 'long' side, got '{trade['side']}'"
-    print("   ✅ PASSED")
+    print("   [OK] PASSED")
     
     # Test 5: Full fallback trade with bearish session
     print("\n5. Testing full fallback trade with bearish session...")
@@ -191,10 +191,10 @@ def test_fallback_improvements():
     
     assert trade_bearish['used_fallback'] == True, "Trade should be marked as fallback"
     assert trade_bearish['side'] == 'short', f"Expected 'short' side, got '{trade_bearish['side']}'"
-    print("   ✅ PASSED")
+    print("   [OK] PASSED")
     
     print("\n" + "=" * 50)
-    print("🎉 ALL TESTS PASSED! Fallback improvements are working correctly.")
+    print("[CELEBRATE] ALL TESTS PASSED! Fallback improvements are working correctly.")
     print("=" * 50)
 
 

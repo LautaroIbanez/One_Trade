@@ -59,7 +59,7 @@ def main():
     """Main execution function."""
     args = parse_arguments()
     
-    print("🚀 BTC 1 Trade Per Day Backtester")
+    print("[START] BTC 1 Trade Per Day Backtester")
     print("=" * 50)
     print(f"Symbol: {args.symbol}")
     print(f"Period: {args.since} to {args.until or 'now'}")
@@ -73,16 +73,16 @@ def main():
     
     try:
         # Fetch historical data
-        print("\n📊 Fetching historical data...")
+        print("\n[DATA] Fetching historical data...")
         htf_data = fetch_historical_data(args.symbol, args.since, args.until, "1h")
         ltf_data = fetch_historical_data(args.symbol, args.since, args.until, f"{args.signal_tf}m")
         
         if htf_data.empty or ltf_data.empty:
-            print("❌ Error: No data retrieved. Check your date range and symbol.")
+            print("[ERROR] Error: No data retrieved. Check your date range and symbol.")
             return
         
-        print(f"✅ High TF data: {len(htf_data)} candles")
-        print(f"✅ Low TF data: {len(ltf_data)} candles")
+        print(f"[OK] High TF data: {len(htf_data)} candles")
+        print(f"[OK] Low TF data: {len(ltf_data)} candles")
         
         # Initialize strategy
         strategy_config = {
@@ -105,19 +105,19 @@ def main():
         backtester = Backtester(strategy, htf_data, ltf_data)
         
         # Run backtest
-        print("\n🔄 Running backtest...")
+        print("\n[RUN] Running backtest...")
         results = backtester.run_backtest()
         
         # Save results
         output_file = "trades.csv"
         results.to_csv(output_file, index=False)
-        print(f"✅ Results saved to {output_file}")
+        print(f"[OK] Results saved to {output_file}")
         
         # Display summary
         backtester.display_summary()
         
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"[ERROR] Error: {str(e)}")
         sys.exit(1)
 
 

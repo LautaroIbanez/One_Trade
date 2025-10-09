@@ -81,10 +81,10 @@ def test_csv_coverage_meets_minimum(sample_symbols_by_mode):
                 else:
                     valid_coverage.append({'symbol': symbol, 'mode': mode, 'actual_days': actual_lookback, 'total_trades': total_trades})
             except Exception as e:
-                print(f"⚠️ Error reading {meta_path.name}: {e}")
+                print(f"[WARN] Error reading {meta_path.name}: {e}")
                 continue
     if insufficient_coverage:
-        error_msg = f"\n❌ {len(insufficient_coverage)} symbol/mode combinations have insufficient coverage:\n"
+        error_msg = f"\n[ERROR] {len(insufficient_coverage)} symbol/mode combinations have insufficient coverage:\n"
         for item in insufficient_coverage:
             error_msg += f"  - {item['symbol']} {item['mode']}: {item['actual_days']} days (need {MINIMUM_COVERAGE_DAYS}), {item['total_trades']} trades from {item['first_trade']} to {item['last_trade']}\n"
         pytest.fail(error_msg)
@@ -113,9 +113,9 @@ def test_csv_matches_meta_trade_count():
             if meta_count != csv_count:
                 mismatches.append({'file': csv_path.name, 'meta_count': meta_count, 'csv_count': csv_count})
         except Exception as e:
-            print(f"⚠️ Error checking {meta_file.name}: {e}")
+            print(f"[WARN] Error checking {meta_file.name}: {e}")
             continue
-    assert not mismatches, f"\n❌ {len(mismatches)} files have trade count mismatches:\n" + "\n".join([f"  - {m['file']}: meta={m['meta_count']}, csv={m['csv_count']}" for m in mismatches])
+    assert not mismatches, f"\n[ERROR] {len(mismatches)} files have trade count mismatches:\n" + "\n".join([f"  - {m['file']}: meta={m['meta_count']}, csv={m['csv_count']}" for m in mismatches])
     print(f"✓ All {len(meta_files)} meta files match CSV trade counts")
 
 
@@ -146,9 +146,9 @@ def test_csv_date_range_consistency():
             if first_trade_csv != first_trade_meta or last_trade_csv != last_trade_meta:
                 inconsistencies.append({'file': csv_path.name, 'meta_first': first_trade_meta, 'csv_first': first_trade_csv, 'meta_last': last_trade_meta, 'csv_last': last_trade_csv})
         except Exception as e:
-            print(f"⚠️ Error checking {meta_file.name}: {e}")
+            print(f"[WARN] Error checking {meta_file.name}: {e}")
             continue
-    assert not inconsistencies, f"\n❌ {len(inconsistencies)} files have date range inconsistencies:\n" + "\n".join([f"  - {i['file']}: meta({i['meta_first']} to {i['meta_last']}) vs csv({i['csv_first']} to {i['csv_last']})" for i in inconsistencies])
+    assert not inconsistencies, f"\n[ERROR] {len(inconsistencies)} files have date range inconsistencies:\n" + "\n".join([f"  - {i['file']}: meta({i['meta_first']} to {i['meta_last']}) vs csv({i['csv_first']} to {i['csv_last']})" for i in inconsistencies])
     print(f"✓ Date ranges consistent between meta and CSV files")
 
 
@@ -170,9 +170,9 @@ def test_no_future_trades():
             if not future_df.empty:
                 future_trades.append({'file': csv_file.name, 'count': len(future_df), 'dates': future_df['entry_time'].dt.date.unique().tolist()})
         except Exception as e:
-            print(f"⚠️ Error checking {csv_file.name}: {e}")
+            print(f"[WARN] Error checking {csv_file.name}: {e}")
             continue
-    assert not future_trades, f"\n❌ {len(future_trades)} files have future trades:\n" + "\n".join([f"  - {ft['file']}: {ft['count']} trades with dates {ft['dates']}" for ft in future_trades])
+    assert not future_trades, f"\n[ERROR] {len(future_trades)} files have future trades:\n" + "\n".join([f"  - {ft['file']}: {ft['count']} trades with dates {ft['dates']}" for ft in future_trades])
     print(f"✓ No future trades detected in {len(csv_files)} files")
 
 
@@ -195,10 +195,10 @@ def test_minimum_trades_per_year():
                 if total_trades < expected_min_trades:
                     low_trade_count.append({'file': meta_file.name, 'symbol': symbol, 'mode': mode, 'actual_days': actual_lookback, 'total_trades': total_trades, 'expected_min': expected_min_trades})
         except Exception as e:
-            print(f"⚠️ Error reading {meta_file.name}: {e}")
+            print(f"[WARN] Error reading {meta_file.name}: {e}")
             continue
     if low_trade_count:
-        warning_msg = f"\n⚠️  {len(low_trade_count)} symbol/mode combinations have low trade counts:\n"
+        warning_msg = f"\n[WARN]  {len(low_trade_count)} symbol/mode combinations have low trade counts:\n"
         for item in low_trade_count:
             warning_msg += f"  - {item['symbol']} {item['mode']}: {item['total_trades']} trades in {item['actual_days']} days (expected >={item['expected_min']})\n"
         print(warning_msg)

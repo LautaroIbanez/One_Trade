@@ -396,7 +396,7 @@ def refresh_trades(symbol: str, mode: str) -> str:
     if run_backtest is None:
         return "Backtest module not available"
     
-    print(f"🔄 refresh_trades called: symbol={symbol}, mode={mode}")
+    print(f"[RUN] refresh_trades called: symbol={symbol}, mode={mode}")
     try:
         # Load existing trades for the current mode
         existing_trades = load_trades(symbol, mode)
@@ -417,7 +417,7 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 meta_in = _json.loads(sidecar_in.read_text(encoding="utf-8"))
                 stored_full_day_flag = bool(meta_in.get("full_day_trading"))
         except Exception as e:
-            print(f"⚠️ Could not read sidecar for mode detection: {e}")
+            print(f"[WARN] Could not read sidecar for mode detection: {e}")
             stored_full_day_flag = None
 
         # Mode change detected if expected CSV missing OR stored flag differs from 24h mode
@@ -446,13 +446,13 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 insufficient_history = True
         
         if mode_change_detected:
-            logger.info(f"🔄 Mode change detected: switching to session mode with 1-year history")
+            logger.info(f"[RUN] Mode change detected: switching to session mode with 1-year history")
             # Clear existing trades and force rebuild
             existing_trades = pd.DataFrame()
             since = default_since
             logger.info(f"📅 Mode change: using default since date: {since} (365+ days)")
         elif insufficient_history:
-            logger.info(f"🔄 Insufficient history detected: forcing full rebuild with 1-year data")
+            logger.info(f"[RUN] Insufficient history detected: forcing full rebuild with 1-year data")
             # Clear existing trades and force rebuild from 365 days ago
             existing_trades = pd.DataFrame()
             since = default_since
@@ -480,11 +480,11 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 print(msg)
                 return f"OK: {msg}"
         except Exception as e:
-            print(f"⚠️ since/until parsing failed (continuing): {e}")
+            print(f"[WARN] since/until parsing failed (continuing): {e}")
         
         # Merge base and mode config
         config = get_effective_config(symbol, mode)
-        logger.info(f"📊 Effective config for {symbol} {mode}: {config}")
+        logger.info(f"[DATA] Effective config for {symbol} {mode}: {config}")
         
         # Run backtest with retry logic for network errors
         results = None
@@ -503,22 +503,22 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 backoff_factor=2.0,
                 exception_types=(ConnectionError, TimeoutError, OSError)
             )
-            logger.info(f"✅ Backtest completed successfully for {symbol} {mode}")
+            logger.info(f"[OK] Backtest completed successfully for {symbol} {mode}")
         except (ConnectionError, TimeoutError, OSError) as e:
             error_type = "network"
             error_detail = str(e)
-            logger.error(f"🔴 Network error after retries: {error_detail}")
+            logger.error(f"[FAIL] Network error after retries: {error_detail}")
         except Exception as e:
             error_type = "general"
             error_detail = str(e)
-            logger.error(f"🔴 Backtest error: {error_detail}")
+            logger.error(f"[FAIL] Backtest error: {error_detail}")
         
         # Extract trades DataFrame from results
         trades_df = results.trades_df if results is not None else pd.DataFrame()
         
         # Check if strategy is suitable (only if we have results)
         if results is not None and not results.is_strategy_suitable():
-            logger.warning("\n⚠️ WARNING: Strategy failed validation criteria!")
+            logger.warning("\n[WARN] WARNING: Strategy failed validation criteria!")
             logger.warning("Consider adjusting parameters or strategy configuration.")
             logger.warning(f"Validation summary: {results.get_validation_summary()}")
 
@@ -548,11 +548,11 @@ def refresh_trades(symbol: str, mode: str) -> str:
         logger.info(f"ℹ️  session mode: {'forcing complete rebuild' if rebuild_completely else 'incremental update'}.")
 
         if rebuild_completely:
-            print(f"🔄 Rebuilding completely for {symbol} {mode}")
+            print(f"[RUN] Rebuilding completely for {symbol} {mode}")
             # Replace CSV completely with new results, no concatenation
             combined = trades_df.copy() if not trades_df.empty else pd.DataFrame()
         else:
-            print(f"🔄 Incremental update for {symbol} {mode}")
+            print(f"[RUN] Incremental update for {symbol} {mode}")
             # Concatenate existing trades with new results
             if not trades_df.empty:
                 combined = pd.concat([existing_trades, trades_df], ignore_index=True)
@@ -620,6 +620,29 @@ def refresh_trades(symbol: str, mode: str) -> str:
         if "entry_time" in combined.columns:
             combined = combined.sort_values(by="entry_time").reset_index(drop=True)
         
+        # CRITICAL VALIDATION: Block persistence if coverage < 365 days
+        actual_lookback_days_check = None
+        if not combined.empty and "entry_time" in combined.columns:
+            try:
+                dates = pd.to_datetime(combined["entry_time"])
+                if not dates.empty:
+                    min_entry = dates.min()
+                    max_entry = dates.max()
+                    if pd.notna(min_entry) and pd.notna(max_entry):
+                        actual_lookback_days_check = (max_entry.date() - min_entry.date()).days
+            except Exception as e:
+                logger.error(f"Failed to check coverage before save: {e}")
+        
+        if actual_lookback_days_check is not None and actual_lookback_days_check < 365:
+            error_msg = f"BLOCKED: Refusing to persist data with insufficient coverage: {actual_lookback_days_check} days < 365 days minimum. Symbol: {symbol}, Mode: {mode}. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+            logger.error(error_msg)
+            return f"ERROR: {error_msg}"
+        
+        if combined.empty and rebuild_completely:
+            error_msg = f"BLOCKED: Refusing to persist empty DataFrame after complete rebuild. Symbol: {symbol}, Mode: {mode}. Check logs for fetch errors. Last error: {error_detail if error_detail else 'None'}"
+            logger.error(error_msg)
+            return f"ERROR: {error_msg}"
+        
         # Save combined DataFrame
         combined.to_csv(filename, index=False)
         
@@ -675,11 +698,11 @@ def refresh_trades(symbol: str, mode: str) -> str:
                 }
             }
             sidecar_out.write_text(_json.dumps(meta_payload, indent=2, ensure_ascii=False))
-            logger.info(f"✅ Updated meta.json for {symbol} {mode}")
+            logger.info(f"[OK] Updated meta.json for {symbol} {mode}")
         except Exception as e:
-            logger.error(f"⚠️ Could not write sidecar meta: {e}")
+            logger.error(f"[WARN] Could not write sidecar meta: {e}")
         
-        logger.info(f"✅ Saved {len(combined)} total trades to {filename}")
+        logger.info(f"[OK] Saved {len(combined)} total trades to {filename}")
         
         # Construct detailed return message based on outcome
         if error_type == "network":
@@ -692,7 +715,7 @@ def refresh_trades(symbol: str, mode: str) -> str:
             return f"OK: Saved {len(combined)} total trades to {filename} (since {since} until {until})"
             
     except Exception as e:
-        logger.exception(f"❌ Critical error in refresh_trades for {symbol} {mode}")
+        logger.exception(f"[ERROR] Critical error in refresh_trades for {symbol} {mode}")
         return f"ERROR: refresh_trades failed for {symbol} {mode}: {str(e)}"
 
 
@@ -718,7 +741,7 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
         slug = symbol.replace('/', '_').replace(':', '_')
     mode_suffix = (mode or "").lower().strip()
     
-    print(f"📂 load_trades called: symbol={symbol}, mode={mode}, 24h=True")
+    print(f"[FOLDER] load_trades called: symbol={symbol}, mode={mode}, 24h=True")
     
     # Build absolute paths based on repo_root, restricted to data/ and explicit csv_path
     candidates = []
@@ -749,10 +772,10 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                     # Remove rows with invalid dates (NaT)
                     invalid_dates = df["entry_time"].isna().sum()
                     if invalid_dates > 0:
-                        print(f"⚠️ Removed {invalid_dates} rows with invalid entry_time in {path}")
+                        print(f"[WARN] Removed {invalid_dates} rows with invalid entry_time in {path}")
                         df = df.dropna(subset=["entry_time"])
                 except Exception as e:
-                    print(f"⚠️ Error parsing entry_time in {path}: {e}")
+                    print(f"[WARN] Error parsing entry_time in {path}: {e}")
             
             if "exit_time" in df.columns:
                 try:
@@ -760,7 +783,7 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                     df["exit_time"] = pd.to_datetime(df["exit_time"], format='ISO8601', errors='coerce', utc=True)
                     # Don't remove rows with invalid exit_time (might be active trades)
                 except Exception as e:
-                    print(f"⚠️ Error parsing exit_time in {path}: {e}")
+                    print(f"[WARN] Error parsing exit_time in {path}: {e}")
             
             # Freshness validation via sidecar
             is_stale = False
@@ -785,22 +808,22 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
                             max_entry_date = max_entry.date().isoformat()
                             # Accept if max_entry_date <= today (not future) and sidecar covers today
                             if max_entry_date > today_date:
-                                print(f"⚠️ Future entry date ignored: {path} (max_entry={max_entry_date})")
+                                print(f"[WARN] Future entry date ignored: {path} (max_entry={max_entry_date})")
                                 continue
                         # If no valid entry_time or empty, but sidecar covers today, accept empty file
                     # If no entry_time column but sidecar is fresh, accept the file
                 else:
                     # Sidecar doesn't cover current session, mark as stale but preserve data
                     is_stale = True
-                    print(f"⚠️ Stale sidecar detected: {path} (last_until={last_until}, today={today_date}) - preserving data")
+                    print(f"[WARN] Stale sidecar detected: {path} (last_until={last_until}, today={today_date}) - preserving data")
             except Exception as e:
-                print(f"⚠️ Freshness validation failed for {path}: {e}")
+                print(f"[WARN] Freshness validation failed for {path}: {e}")
                 continue
             
             # Mark DataFrame as stale if needed
             if is_stale and last_until is not None:
                 df.attrs["stale_last_until"] = last_until
-            print(f"✅ Loaded trades from: {path} ({len(df)} rows)")
+            print(f"[OK] Loaded trades from: {path} ({len(df)} rows)")
             # Times are already normalized above with tolerant parsing 
             # Filter by symbol if column exists and symbol provided
             if symbol and "symbol" in df.columns:
@@ -812,9 +835,9 @@ def load_trades(symbol: str | None = None, mode: str | None = None, csv_path: st
             if df is not None and not df.empty:
                 return df
         except Exception as e:
-            print(f"❌ Failed to load {path}: {e}")
+            print(f"[ERROR] Failed to load {path}: {e}")
             continue
-    print(f"❌ No valid trades found for {symbol} {mode}")
+    print(f"[ERROR] No valid trades found for {symbol} {mode}")
     return pd.DataFrame()
 
 
@@ -1197,7 +1220,7 @@ def create_app():
             dbc.NavbarBrand("One Trade", className="fw-bold"),
             dbc.NavbarToggler(id="navbar-toggler"),
             dbc.Collapse(dbc.Row([
-                dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="BTC/USDT:USDT" , className="me-2"), md="auto"),
+                dbc.Col(dbc.Select(id="symbol-dropdown", options=[{"label": s, "value": s} for s in DEFAULT_SYMBOLS], value="ETH/USDT:USDT" , className="me-2"), md="auto"),
                 dbc.Col(dbc.RadioItems(id="investment-mode", options=[{"label": "Conservador", "value": "conservative"}, {"label": "Moderado", "value": "moderate"}, {"label": "Arriesgado", "value": "aggressive"}], value="moderate", inline=True, className="me-3", labelClassName="text-white"), md="auto"),
                 dbc.Col([
                     dbc.Switch(
@@ -1473,7 +1496,8 @@ def create_app():
         # Get symbols for the mode
         symbols = get_symbols_for_mode(mode)
         symbol_options = [{"label": s, "value": s} for s in symbols]
-        default_symbol = symbols[0] if symbols else "BTC/USDT:USDT"
+        # Prefer ETH/USDT:USDT if available (has historical data), otherwise first symbol
+        default_symbol = "ETH/USDT:USDT" if "ETH/USDT:USDT" in symbols else (symbols[0] if symbols else "ETH/USDT:USDT")
         
         # Get strategy description
         strategy_info = STRATEGY_DESCRIPTIONS.get(mode, STRATEGY_DESCRIPTIONS["moderate"])
@@ -1614,7 +1638,7 @@ def create_app():
         
         # Construct detailed alert message based on stale data and errors
         if stale_last_until is not None:
-            alert_msg = f"⚠️ Datos actualizados hasta {format_argentina_time(datetime.fromisoformat(stale_last_until), '%Y-%m-%d')}. "
+            alert_msg = f"[WARN] Datos actualizados hasta {format_argentina_time(datetime.fromisoformat(stale_last_until), '%Y-%m-%d')}. "
             
             if last_error_info:
                 error_type = last_error_info.get('type')
@@ -1787,7 +1811,7 @@ def create_app():
                 if recent_side:
                     # Compare original signals (not inverted for display)
                     if strategy_signal.lower() != recent_side.lower():
-                        validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                        validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
         
         # Update alert message to include validation
         if validation_alert:
@@ -1843,11 +1867,11 @@ def create_app():
         in_exit_window = exit_window[0] <= current_hour < exit_window[1]
         
         if in_entry_window:
-            hero_session_status_text = "🟢 Ventana de entrada activa"
+            hero_session_status_text = "[PASS] Ventana de entrada activa"
         elif in_exit_window:
-            hero_session_status_text = "🔴 Ventana de salida activa"
+            hero_session_status_text = "[FAIL] Ventana de salida activa"
         else:
-            hero_session_status_text = "⏸️ Fuera de ventana"
+            hero_session_status_text = "[PAUSE] Fuera de ventana"
         
         # Hero Section - Risk and Mode
         risk_usdt = config.get('risk_usdt', 20.0)

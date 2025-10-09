@@ -227,7 +227,7 @@ def test_metrics_calculation_normal_mode():
         else:
             assert abs(metrics['profit_factor'] - expected['profit_factor']) < 0.01, f"Profit factor mismatch for {test_case['name']}: {metrics['profit_factor']} vs {expected['profit_factor']}"
     
-    print("✅ Normal mode metrics calculation test passed")
+    print("[OK] Normal mode metrics calculation test passed")
 
 
 def test_metrics_calculation_inverted_mode():
@@ -260,7 +260,7 @@ def test_metrics_calculation_inverted_mode():
         else:
             assert abs(metrics['profit_factor'] - expected['profit_factor']) < 0.01, f"Profit factor mismatch for {test_case['name']}: {metrics['profit_factor']} vs {expected['profit_factor']}"
     
-    print("✅ Inverted mode metrics calculation test passed")
+    print("[OK] Inverted mode metrics calculation test passed")
 
 
 def test_metrics_consistency():
@@ -307,7 +307,7 @@ def test_metrics_consistency():
         # Test consistency: max_drawdown should always be negative (magnitude-sensitive)
         assert inverted_metrics['max_drawdown'] <= 0, "Max drawdown should always be negative or zero"
     
-    print("✅ Metrics consistency test passed")
+    print("[OK] Metrics consistency test passed")
 
 
 def test_empty_dataset():
@@ -332,7 +332,7 @@ def test_empty_dataset():
     assert inverted_metrics['total_pnl'] == 0.0, "Total PnL should be 0 for empty dataset"
     assert inverted_metrics['current_capital'] == 1000.0, "Current capital should equal initial capital for empty dataset"
     
-    print("✅ Empty dataset test passed")
+    print("[OK] Empty dataset test passed")
 
 
 def main():

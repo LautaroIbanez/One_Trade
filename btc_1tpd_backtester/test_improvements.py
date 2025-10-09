@@ -112,12 +112,12 @@ def test_fallback_entry_fix():
         next_candle = full_data[full_data.index > last_session_candle].iloc[0]
         assert entry_price == next_candle['open'], f"Entry price should be next candle open: {next_candle['open']}, got {entry_price}"
         
-        print("✅ Fallback entry fix: PASSED")
+        print("[OK] Fallback entry fix: PASSED")
         print(f"   Entry time: {entry_time}")
         print(f"   Entry price: {entry_price}")
         print(f"   Next candle open: {next_candle['open']}")
     else:
-        print("❌ Fallback entry fix: FAILED - No trades generated")
+        print("[ERROR] Fallback entry fix: FAILED - No trades generated")
 
 
 def test_daily_trend_filter():
@@ -164,11 +164,11 @@ def test_daily_trend_filter():
         assert daily_trend == 'long', f"Expected bullish daily trend, got {daily_trend}"
         assert trade_side == 'long', f"Expected long trade with bullish trend, got {trade_side}"
         
-        print("✅ Daily trend filter: PASSED")
+        print("[OK] Daily trend filter: PASSED")
         print(f"   Daily trend: {daily_trend}")
         print(f"   Trade side: {trade_side}")
     else:
-        print("❌ Daily trend filter: FAILED - No trades generated")
+        print("[ERROR] Daily trend filter: FAILED - No trades generated")
 
 
 def test_reentry_on_trend_change():
@@ -209,7 +209,7 @@ def test_reentry_on_trend_change():
     
     trades = strategy.process_day(full_data, day_data.index[0].date())
     
-    print(f"✅ Reentry on trend change: PASSED")
+    print(f"[OK] Reentry on trend change: PASSED")
     print(f"   Number of trades: {len(trades)}")
     print(f"   Max daily trades: {strategy.max_daily_trades}")
     
@@ -228,11 +228,11 @@ def main():
         test_reentry_on_trend_change()
         
         print("\n" + "=" * 50)
-        print("🎉 ALL TESTS COMPLETED!")
+        print("[CELEBRATE] ALL TESTS COMPLETED!")
         print("=" * 50)
         
     except Exception as e:
-        print(f"\n❌ Test failed with error: {e}")
+        print(f"\n[ERROR] Test failed with error: {e}")
         import traceback
         traceback.print_exc()
 

@@ -8,11 +8,11 @@ import sys
 
 def run_backtest_example():
     """Run a complete backtest example."""
-    print("🚀 BTC 1 Trade Per Day Backtester - Example Run")
+    print("[START] BTC 1 Trade Per Day Backtester - Example Run")
     print("=" * 60)
     
     # Example 1: Basic backtest
-    print("\n📊 Running basic backtest (June-September 2024)...")
+    print("\n[DATA] Running basic backtest (June-September 2024)...")
     cmd = [
         sys.executable, 
         "btc_1tpd_backtest_final.py",
@@ -33,7 +33,7 @@ def run_backtest_example():
         print(f"Error running backtest: {e}")
     
     print("\n" + "=" * 60)
-    print("✅ Example completed!")
+    print("[OK] Example completed!")
     print("Check 'trades_final.csv' for detailed results.")
 
 if __name__ == "__main__":

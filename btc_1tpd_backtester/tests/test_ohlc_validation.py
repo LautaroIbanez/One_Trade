@@ -46,7 +46,7 @@ def test_standardize_ohlc_columns_standard_names():
     assert 'volume' in result.columns, "volume column should exist"
     assert len(result) == 10, "Should have same number of rows"
     
-    print("✅ Standard names test passed")
+    print("[OK] Standard names test passed")
 
 
 def test_standardize_ohlc_columns_capitalized():
@@ -71,7 +71,7 @@ def test_standardize_ohlc_columns_capitalized():
     assert 'close' in result.columns, "Should have lowercase 'close'"
     assert 'volume' in result.columns, "Should have lowercase 'volume'"
     
-    print("✅ Capitalized names test passed")
+    print("[OK] Capitalized names test passed")
 
 
 def test_standardize_ohlc_columns_abbreviated():
@@ -96,7 +96,7 @@ def test_standardize_ohlc_columns_abbreviated():
     assert 'close' in result.columns, "Should rename 'C' to 'close'"
     assert 'volume' in result.columns, "Should rename 'V' to 'volume'"
     
-    print("✅ Abbreviated names test passed")
+    print("[OK] Abbreviated names test passed")
 
 
 def test_standardize_ohlc_columns_missing_columns():
@@ -118,9 +118,9 @@ def test_standardize_ohlc_columns_missing_columns():
         assert False, "Should have raised ValueError for missing column"
     except ValueError as e:
         assert "Missing required OHLC columns" in str(e), f"Wrong error message: {e}"
-        print(f"✅ Correctly raised error: {e}")
+        print(f"[OK] Correctly raised error: {e}")
     
-    print("✅ Missing columns test passed")
+    print("[OK] Missing columns test passed")
 
 
 def test_standardize_ohlc_columns_non_numeric():
@@ -143,7 +143,7 @@ def test_standardize_ohlc_columns_non_numeric():
     assert pd.api.types.is_numeric_dtype(result['open']), "Should convert string to numeric"
     assert result['open'].iloc[0] == 100.0, "Should parse string '100.0' as float 100.0"
     
-    print("✅ Non-numeric data test passed")
+    print("[OK] Non-numeric data test passed")
 
 
 def test_validate_data_integrity_valid_data():
@@ -165,7 +165,7 @@ def test_validate_data_integrity_valid_data():
     assert is_valid, f"Should be valid: {message}"
     assert message == "Data validation passed", f"Wrong message: {message}"
     
-    print("✅ Valid data test passed")
+    print("[OK] Valid data test passed")
 
 
 def test_validate_data_integrity_empty():
@@ -179,7 +179,7 @@ def test_validate_data_integrity_empty():
     assert not is_valid, "Empty DataFrame should be invalid"
     assert "empty" in message.lower(), f"Wrong message: {message}"
     
-    print("✅ Empty DataFrame test passed")
+    print("[OK] Empty DataFrame test passed")
 
 
 def test_validate_data_integrity_insufficient_data():
@@ -201,7 +201,7 @@ def test_validate_data_integrity_insufficient_data():
     assert not is_valid, "Should be invalid with only 10 candles"
     assert "Insufficient data" in message, f"Wrong message: {message}"
     
-    print("✅ Insufficient data test passed")
+    print("[OK] Insufficient data test passed")
 
 
 def test_validate_data_integrity_nan_values():
@@ -223,7 +223,7 @@ def test_validate_data_integrity_nan_values():
     assert not is_valid, "Should be invalid with NaN values"
     assert "NaN values" in message, f"Wrong message: {message}"
     
-    print("✅ NaN values test passed")
+    print("[OK] NaN values test passed")
 
 
 def test_validate_data_integrity_invalid_ohlc():
@@ -245,7 +245,7 @@ def test_validate_data_integrity_invalid_ohlc():
     assert not is_valid, "Should be invalid with high < low"
     assert "Invalid OHLC" in message, f"Wrong message: {message}"
     
-    print("✅ Invalid OHLC test passed")
+    print("[OK] Invalid OHLC test passed")
 
 
 def test_validate_data_integrity_unsorted_index():
@@ -269,7 +269,7 @@ def test_validate_data_integrity_unsorted_index():
     assert not is_valid, "Should be invalid with unsorted index"
     assert "chronological order" in message, f"Wrong message: {message}"
     
-    print("✅ Unsorted index test passed")
+    print("[OK] Unsorted index test passed")
 
 
 def main():

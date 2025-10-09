@@ -1,0 +1,86 @@
+{
+  "timestamp": "2025-10-08T20:33:34.024291+00:00",
+  "since_date": "2023-10-09",
+  "force_rebuild": true,
+  "summary": {
+    "total_symbols": 5,
+    "total_modes": 1,
+    "total_executions": 5,
+    "successful": 0,
+    "failed": 5,
+    "insufficient_coverage": 0,
+    "total_trades_generated": 0
+  },
+  "executions": [
+    {
+      "symbol": "BTC/USDT:USDT",
+      "mode": "moderate",
+      "start_time": "2025-10-08T20:30:32.242558+00:00",
+      "end_time": "2025-10-08T20:31:05.374829+00:00",
+      "status": "failed",
+      "message": "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: BTC/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild",
+      "trades_generated": 0,
+      "coverage_days": 0,
+      "errors": [
+        "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: BTC/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+      ],
+      "duration_seconds": 33.132271
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "mode": "moderate",
+      "start_time": "2025-10-08T20:31:05.374829+00:00",
+      "end_time": "2025-10-08T20:31:37.804224+00:00",
+      "status": "failed",
+      "message": "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 364 days < 365 days minimum. Symbol: ETH/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild",
+      "trades_generated": 0,
+      "coverage_days": 0,
+      "errors": [
+        "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 364 days < 365 days minimum. Symbol: ETH/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+      ],
+      "duration_seconds": 32.429395
+    },
+    {
+      "symbol": "BNB/USDT:USDT",
+      "mode": "moderate",
+      "start_time": "2025-10-08T20:31:37.804224+00:00",
+      "end_time": "2025-10-08T20:32:18.488114+00:00",
+      "status": "failed",
+      "message": "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: BNB/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild",
+      "trades_generated": 0,
+      "coverage_days": 0,
+      "errors": [
+        "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: BNB/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+      ],
+      "duration_seconds": 40.68389
+    },
+    {
+      "symbol": "SOL/USDT:USDT",
+      "mode": "moderate",
+      "start_time": "2025-10-08T20:32:18.488114+00:00",
+      "end_time": "2025-10-08T20:33:04.235970+00:00",
+      "status": "failed",
+      "message": "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 358 days < 365 days minimum. Symbol: SOL/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild",
+      "trades_generated": 0,
+      "coverage_days": 0,
+      "errors": [
+        "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 358 days < 365 days minimum. Symbol: SOL/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+      ],
+      "duration_seconds": 45.747856
+    },
+    {
+      "symbol": "ADA/USDT:USDT",
+      "mode": "moderate",
+      "start_time": "2025-10-08T20:33:04.235970+00:00",
+      "end_time": "2025-10-08T20:33:34.024291+00:00",
+      "status": "failed",
+      "message": "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: ADA/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild",
+      "trades_generated": 0,
+      "coverage_days": 0,
+      "errors": [
+        "ERROR: BLOCKED: Refusing to persist data with insufficient coverage: 363 days < 365 days minimum. Symbol: ADA/USDT:USDT, Mode: moderate. Please force a complete rebuild: python manage_backtests.py --since=full --force-rebuild"
+      ],
+      "duration_seconds": 29.788321
+    }
+  ]
+}

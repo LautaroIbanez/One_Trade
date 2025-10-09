@@ -129,7 +129,7 @@ def test_invert_trade():
     assert inverted_short["r_multiple"] == 1.0, f"Expected 1.0, got {inverted_short['r_multiple']}"
     assert inverted_short["exit_reason"] == "take_profit", f"Expected 'take_profit', got {inverted_short['exit_reason']}"
     
-    print("✅ Single trade inversion test passed")
+    print("[OK] Single trade inversion test passed")
 
 
 def test_invert_trades_dataframe():
@@ -167,7 +167,7 @@ def test_invert_trades_dataframe():
     inverted_empty = invert_trades_dataframe(empty_df)
     assert inverted_empty.empty, "Empty DataFrame should remain empty after inversion"
     
-    print("✅ DataFrame trades inversion test passed")
+    print("[OK] DataFrame trades inversion test passed")
 
 
 def test_invert_metrics():
@@ -200,7 +200,7 @@ def test_invert_metrics():
     assert inverted_metrics["initial_capital"] == 1000.0, f"Expected 1000.0, got {inverted_metrics['initial_capital']}"
     assert inverted_metrics["leverage"] == 1.0, f"Expected 1.0, got {inverted_metrics['leverage']}"
     
-    print("✅ Metrics inversion test passed")
+    print("[OK] Metrics inversion test passed")
 
 
 def test_double_inversion():
@@ -235,7 +235,7 @@ def test_double_inversion():
     assert inverted_twice_metrics["roi"] == original_metrics["roi"], "Double inversion should restore original ROI"
     assert inverted_twice_metrics["win_rate"] == original_metrics["win_rate"], "Double inversion should restore original win_rate"
     
-    print("✅ Double inversion test passed")
+    print("[OK] Double inversion test passed")
 
 
 def main():

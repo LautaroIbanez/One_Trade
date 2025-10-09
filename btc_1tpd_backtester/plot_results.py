@@ -394,7 +394,7 @@ def create_comprehensive_report(trades_df, save_plots=True):
         print("No trades to create report for")
         return
     
-    print("📊 Creating comprehensive trading report...")
+    print("[DATA] Creating comprehensive trading report...")
     
     # Create all plots
     plots = {
@@ -408,22 +408,22 @@ def create_comprehensive_report(trades_df, save_plots=True):
     }
     
     if save_plots:
-        print("💾 Saving plots...")
+        print("[SAVE] Saving plots...")
         for name, fig in plots.items():
             if fig is None:
-                print(f"   ⚠️  Skipping {name}: figure is None (e.g., missing price data)")
+                print(f"   [WARN]  Skipping {name}: figure is None (e.g., missing price data)")
                 continue
             filename = f"trading_report_{name}.png"
             try:
                 fig.savefig(filename, dpi=300, bbox_inches='tight')
-                print(f"   ✅ Saved: {filename}")
+                print(f"   [OK] Saved: {filename}")
             except Exception as e:
-                print(f"   ❌ Could not save {name}: {e}")
+                print(f"   [ERROR] Could not save {name}: {e}")
     
     # Show all plots
     plt.show()
     
-    print("✅ Comprehensive report created!")
+    print("[OK] Comprehensive report created!")
     return plots
 
 
@@ -434,18 +434,18 @@ def main():
         trades_df = pd.read_csv('trades_final.csv')
         
         if trades_df.empty:
-            print("❌ No trades data found in trades_final.csv")
+            print("[ERROR] No trades data found in trades_final.csv")
             return
         
-        print(f"📈 Loaded {len(trades_df)} trades")
+        print(f"[CHART] Loaded {len(trades_df)} trades")
         
         # Create comprehensive report
         create_comprehensive_report(trades_df, save_plots=True)
         
     except FileNotFoundError:
-        print("❌ trades_final.csv not found. Please run the backtester first.")
+        print("[ERROR] trades_final.csv not found. Please run the backtester first.")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[ERROR] Error: {e}")
 
 
 if __name__ == "__main__":

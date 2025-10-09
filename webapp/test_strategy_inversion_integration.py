@@ -126,7 +126,7 @@ def test_complete_inversion_flow():
     # Max drawdown: always negative (magnitude-sensitive)
     assert inverted_metrics["max_drawdown"] <= 0, "Max drawdown should always be negative or zero"
     
-    print("✅ Complete inversion flow test passed")
+    print("[OK] Complete inversion flow test passed")
 
 
 def test_ui_state_management():
@@ -151,7 +151,7 @@ def test_ui_state_management():
     assert badge_style_normal["display"] == "none", "Normal state should hide badge"
     assert badge_style_inverted["display"] == "block", "Inverted state should show badge"
     
-    print("✅ UI state management test passed")
+    print("[OK] UI state management test passed")
 
 
 def test_metric_labels_and_colors():
@@ -192,7 +192,7 @@ def test_metric_labels_and_colors():
     assert dd_color == "danger", "Negative drawdown should be danger color"
     assert roi_color == "danger", "Negative ROI should be danger color"
     
-    print("✅ Metric labels and colors test passed")
+    print("[OK] Metric labels and colors test passed")
 
 
 def test_validation_with_inversion():
@@ -217,7 +217,7 @@ def test_validation_with_inversion():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Should not generate alert for matching signals in normal mode"
     assert display_side == "long", "Display side should be 'long' in normal mode"
@@ -236,12 +236,12 @@ def test_validation_with_inversion():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Should not generate alert for matching signals in inverted mode"
     assert display_side == "short", "Display side should be 'short' in inverted mode"
     
-    print("✅ Validation with inversion test passed")
+    print("[OK] Validation with inversion test passed")
 
 
 def test_double_inversion_consistency():
@@ -276,7 +276,7 @@ def test_double_inversion_consistency():
     assert abs(metrics_inverted_twice["win_rate"] - original_metrics["win_rate"]) < 0.1, "Double inversion should restore original win_rate"
     assert abs(metrics_inverted_twice["max_drawdown"] - original_metrics["max_drawdown"]) < 0.01, "Double inversion should restore original max_drawdown"
     
-    print("✅ Double inversion consistency test passed")
+    print("[OK] Double inversion consistency test passed")
 
 
 def main():

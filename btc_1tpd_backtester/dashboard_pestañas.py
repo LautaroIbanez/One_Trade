@@ -39,7 +39,7 @@ def crear_dashboard_pestañas():
     
     # Crear figura principal
     fig = plt.figure(figsize=(20, 12))
-    fig.suptitle('📊 DASHBOARD COMPLETO - BACKTESTING BTC 1TPD', fontsize=20, fontweight='bold', y=0.95)
+    fig.suptitle('[DATA] DASHBOARD COMPLETO - BACKTESTING BTC 1TPD', fontsize=20, fontweight='bold', y=0.95)
     
     # ===== PESTAÑA 1: ANÁLISIS PRINCIPAL =====
     # 1. Equity Curve (Gráfico principal)
@@ -47,7 +47,7 @@ def crear_dashboard_pestañas():
     ax1.plot(df_sorted['exit_time'], df_sorted['pnl_acumulado'], linewidth=3, color='#2E8B57', alpha=0.8)
     ax1.fill_between(df_sorted['exit_time'], df_sorted['pnl_acumulado'], alpha=0.3, color='#2E8B57')
     ax1.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=2)
-    ax1.set_title('💰 EQUITY CURVE - PnL Acumulado', fontsize=14, fontweight='bold', pad=15)
+    ax1.set_title('[MONEY] EQUITY CURVE - PnL Acumulado', fontsize=14, fontweight='bold', pad=15)
     ax1.set_ylabel('PnL Acumulado (USDT)', fontsize=12)
     ax1.tick_params(axis='both', labelsize=10)
     ax1.grid(True, alpha=0.3)
@@ -56,18 +56,18 @@ def crear_dashboard_pestañas():
     # 2. Métricas de Rendimiento
     ax2 = plt.subplot(2, 3, 3)
     ax2.axis('off')
-    metricas_texto = f"""📊 MÉTRICAS DE RENDIMIENTO
+    metricas_texto = f"""[DATA] MÉTRICAS DE RENDIMIENTO
 
-🎯 Total de Trades: {total_trades}
-✅ Trades Ganadores: {trades_ganadores}
-❌ Trades Perdedores: {trades_perdedores}
-📈 Win Rate: {win_rate:.1f}%
+[TARGET] Total de Trades: {total_trades}
+[OK] Trades Ganadores: {trades_ganadores}
+[ERROR] Trades Perdedores: {trades_perdedores}
+[CHART] Win Rate: {win_rate:.1f}%
 
-💰 PnL Total: {pnl_total:.2f} USDT
-📊 PnL Promedio: {pnl_promedio:.2f} USDT
+[MONEY] PnL Total: {pnl_total:.2f} USDT
+[DATA] PnL Promedio: {pnl_promedio:.2f} USDT
 🎲 R-Múltiple Promedio: {r_multiple_promedio:.2f}
 
-📉 Máximo Drawdown: {max_drawdown:.2f} USDT
+[LOSS] Máximo Drawdown: {max_drawdown:.2f} USDT
 📅 Período: {df['day_key'].min().strftime('%Y-%m-%d')} a {df['day_key'].max().strftime('%Y-%m-%d')}"""
     ax2.text(0.05, 0.95, metricas_texto, transform=ax2.transAxes, fontsize=11, 
              verticalalignment='top', fontfamily='monospace',
@@ -79,7 +79,7 @@ def crear_dashboard_pestañas():
     ax3.hist(df['r_multiple'], bins=bins, alpha=0.7, color='#FF6B6B', edgecolor='black', linewidth=1)
     ax3.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=2)
     ax3.axvline(x=r_multiple_promedio, color='green', linestyle='-', linewidth=2, label=f'Promedio: {r_multiple_promedio:.2f}')
-    ax3.set_title('📈 DISTRIBUCIÓN R-MÚLTIPLES', fontsize=12, fontweight='bold', pad=10)
+    ax3.set_title('[CHART] DISTRIBUCIÓN R-MÚLTIPLES', fontsize=12, fontweight='bold', pad=10)
     ax3.set_xlabel('R-Múltiple', fontsize=10)
     ax3.set_ylabel('Frecuencia', fontsize=10)
     ax3.tick_params(axis='both', labelsize=9)
@@ -93,12 +93,12 @@ def crear_dashboard_pestañas():
     colors = ['#4CAF50', '#F44336']
     wedges, texts, autotexts = ax4.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
                                       startangle=90, textprops={'fontsize': 10})
-    ax4.set_title('🎯 GANADORES VS PERDEDORES', fontsize=12, fontweight='bold', pad=10)
+    ax4.set_title('[TARGET] GANADORES VS PERDEDORES', fontsize=12, fontweight='bold', pad=10)
     
     # 5. Drawdown
     ax5 = plt.subplot(2, 3, 6)
     ax5.fill_between(df_sorted['exit_time'], df_sorted['drawdown'], alpha=0.7, color='#FF4444')
-    ax5.set_title('📉 DRAWDOWN', fontsize=12, fontweight='bold', pad=10)
+    ax5.set_title('[LOSS] DRAWDOWN', fontsize=12, fontweight='bold', pad=10)
     ax5.set_ylabel('Drawdown (USDT)', fontsize=10)
     ax5.tick_params(axis='both', labelsize=9)
     ax5.tick_params(axis='x', rotation=45)
@@ -115,7 +115,7 @@ def crear_dashboard_pestañas():
     # ===== PESTAÑA 2: ANÁLISIS DETALLADO =====
     # Crear nueva figura para la segunda pestaña
     fig2 = plt.figure(figsize=(20, 12))
-    fig2.suptitle('📊 DASHBOARD COMPLETO - ANÁLISIS DETALLADO', fontsize=20, fontweight='bold', y=0.95)
+    fig2.suptitle('[DATA] DASHBOARD COMPLETO - ANÁLISIS DETALLADO', fontsize=20, fontweight='bold', y=0.95)
     
     # 1. PnL por Trade
     ax1 = plt.subplot(2, 3, (1, 2))  # Ocupa 2 columnas
@@ -133,7 +133,7 @@ def crear_dashboard_pestañas():
     ax2.hist(df['pnl_usdt'], bins=20, alpha=0.7, color='#9C27B0', edgecolor='black', linewidth=1)
     ax2.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=2)
     ax2.axvline(x=pnl_promedio, color='green', linestyle='-', linewidth=2, label=f'Promedio: {pnl_promedio:.2f}')
-    ax2.set_title('📊 DISTRIBUCIÓN PnL', fontsize=12, fontweight='bold', pad=10)
+    ax2.set_title('[DATA] DISTRIBUCIÓN PnL', fontsize=12, fontweight='bold', pad=10)
     ax2.set_xlabel('PnL (USDT)', fontsize=10)
     ax2.set_ylabel('Frecuencia', fontsize=10)
     ax2.tick_params(axis='both', labelsize=9)
@@ -188,10 +188,10 @@ def crear_dashboard_pestañas():
     plt.savefig('dashboard_pestaña2_detallado.png', dpi=300, bbox_inches='tight', facecolor='white')
     plt.show()
     
-    print("🎉 Dashboard con pestañas creado exitosamente!")
-    print("📊 Pestaña 1 (Principal): 'dashboard_pestaña1_principal.png'")
-    print("📊 Pestaña 2 (Detallado): 'dashboard_pestaña2_detallado.png'")
-    print(f"📈 Resumen: {total_trades} trades, {win_rate:.1f}% win rate, {pnl_total:.2f} USDT total")
+    print("[CELEBRATE] Dashboard con pestañas creado exitosamente!")
+    print("[DATA] Pestaña 1 (Principal): 'dashboard_pestaña1_principal.png'")
+    print("[DATA] Pestaña 2 (Detallado): 'dashboard_pestaña2_detallado.png'")
+    print(f"[CHART] Resumen: {total_trades} trades, {win_rate:.1f}% win rate, {pnl_total:.2f} USDT total")
 
 if __name__ == "__main__":
     crear_dashboard_pestañas()

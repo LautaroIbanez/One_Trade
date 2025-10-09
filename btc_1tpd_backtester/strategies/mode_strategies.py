@@ -404,8 +404,8 @@ class TrendFollowingStrategy(BaseStrategy):
         # EMAs
         ema_fast = self.config.get('ema_fast', 9)
         ema_slow = self.config.get('ema_slow', 21)
-        df['ema_fast'] = ema(df['close'], ema_fast)
-        df['ema_slow'] = ema(df['close'], ema_slow)
+        df['ema_fast'] = ema(df, ema_fast, 'close')
+        df['ema_slow'] = ema(df, ema_slow, 'close')
         
         # ATR
         atr_period = self.config.get('atr_period', 14)

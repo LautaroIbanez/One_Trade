@@ -9,11 +9,11 @@ import os
 
 def run_backtest_with_plots():
     """Run a complete backtest with visual reports."""
-    print("🚀 BTC 1 Trade Per Day Backtester - Example with Plots")
+    print("[START] BTC 1 Trade Per Day Backtester - Example with Plots")
     print("=" * 70)
     
     # Example: Run backtest for a specific period
-    print("\n📊 Running backtest for August 2024...")
+    print("\n[DATA] Running backtest for August 2024...")
     cmd = [
         sys.executable, 
         "btc_1tpd_backtest_final.py",
@@ -28,7 +28,7 @@ def run_backtest_with_plots():
         result = subprocess.run(cmd, capture_output=False, text=True)
         
         if result.returncode == 0:
-            print("\n✅ Backtest completed successfully!")
+            print("\n[OK] Backtest completed successfully!")
             print("\n📁 Generated files:")
             
             # Check for generated files
@@ -45,21 +45,21 @@ def run_backtest_with_plots():
             for filename in files_to_check:
                 if os.path.exists(filename):
                     size = os.path.getsize(filename)
-                    print(f"   ✅ {filename} ({size:,} bytes)")
+                    print(f"   [OK] {filename} ({size:,} bytes)")
                 else:
-                    print(f"   ❌ {filename} (not found)")
+                    print(f"   [ERROR] {filename} (not found)")
             
             print("\n🎨 Visual reports generated!")
             print("   You can now analyze your trading performance with the generated charts.")
             
         else:
-            print(f"\n❌ Backtest failed with return code: {result.returncode}")
+            print(f"\n[ERROR] Backtest failed with return code: {result.returncode}")
             
     except Exception as e:
-        print(f"\n❌ Error running backtest: {e}")
+        print(f"\n[ERROR] Error running backtest: {e}")
     
     print("\n" + "=" * 70)
-    print("💡 Next steps:")
+    print("[INFO] Next steps:")
     print("   1. Check the generated PNG files for visual analysis")
     print("   2. Review trades_final.csv for detailed trade data")
     print("   3. Try different parameters to optimize the strategy")
@@ -70,7 +70,7 @@ def demonstrate_plot_generation():
     print("\n🎨 Demonstrating standalone plot generation...")
     
     if not os.path.exists("trades_final.csv"):
-        print("❌ No trades_final.csv found. Run the backtest first.")
+        print("[ERROR] No trades_final.csv found. Run the backtest first.")
         return
     
     # Generate plots with custom output directory
@@ -85,11 +85,11 @@ def demonstrate_plot_generation():
     try:
         result = subprocess.run(cmd, capture_output=False, text=True)
         if result.returncode == 0:
-            print("✅ Standalone plot generation completed!")
+            print("[OK] Standalone plot generation completed!")
         else:
-            print(f"❌ Plot generation failed with return code: {result.returncode}")
+            print(f"[ERROR] Plot generation failed with return code: {result.returncode}")
     except Exception as e:
-        print(f"❌ Error generating plots: {e}")
+        print(f"[ERROR] Error generating plots: {e}")
 
 def main():
     """Main execution function."""
@@ -102,7 +102,7 @@ def main():
     # Demonstrate standalone plot generation
     demonstrate_plot_generation()
     
-    print("\n🎉 Example completed!")
+    print("\n[CELEBRATE] Example completed!")
     print("The backtester now provides comprehensive visual analysis of trading performance.")
 
 if __name__ == "__main__":

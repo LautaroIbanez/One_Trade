@@ -238,17 +238,19 @@ def fetch_historical_data(symbol, since, until=None, timeframe='1h', exchange_na
         return pd.DataFrame()
 
 
-def standardize_ohlc_columns(df):
+def standardize_ohlc_columns(df, save_failure_sample: bool = True):
     """
-    Standardize OHLC column names and ensure all required columns exist.
+    Standardize OHLC column names and ensure all required columns exist. Enhanced with structured logging to capture KeyError details and save problematic payloads for reproducibility.
     
     This function handles cases where:
     - CCXT returns abbreviated column names (O, H, L, C, V)
     - Columns might be in different cases (Open vs open)
     - Some columns might be missing or None
+    - Extended column mappings for edge cases
     
     Args:
         df: DataFrame with OHLCV data
+        save_failure_sample: If True, saves problematic DataFrame samples to data/debug/
         
     Returns:
         DataFrame with standardized column names ['open', 'high', 'low', 'close', 'volume']
@@ -256,16 +258,10 @@ def standardize_ohlc_columns(df):
     if df.empty:
         return df
     
-    # Mapping of possible column name variations to standard names
-    column_mappings = {
-        'open': ['open', 'Open', 'OPEN', 'O', 'o'],
-        'high': ['high', 'High', 'HIGH', 'H', 'h'],
-        'low': ['low', 'Low', 'LOW', 'L', 'l'],
-        'close': ['close', 'Close', 'CLOSE', 'C', 'c'],
-        'volume': ['volume', 'Volume', 'VOLUME', 'V', 'v', 'vol', 'Vol']
-    }
+    logger.debug(f"standardize_ohlc_columns: received DataFrame with columns={list(df.columns)}, shape={df.shape}, dtypes={df.dtypes.to_dict()}")
     
-    # Rename columns to standard names
+    column_mappings = {'open': ['open', 'Open', 'OPEN', 'O', 'o', 'Open Price', 'open_price', 'openPrice'], 'high': ['high', 'High', 'HIGH', 'H', 'h', 'High Price', 'high_price', 'highPrice'], 'low': ['low', 'Low', 'LOW', 'L', 'l', 'Low Price', 'low_price', 'lowPrice'], 'close': ['close', 'Close', 'CLOSE', 'C', 'c', 'Close Price', 'close_price', 'closePrice', 'last', 'Last'], 'volume': ['volume', 'Volume', 'VOLUME', 'V', 'v', 'vol', 'Vol', 'VOL', 'amount', 'Amount', 'AMOUNT', 'base_volume', 'baseVolume']}
+    
     rename_dict = {}
     for standard_name, variations in column_mappings.items():
         for col in df.columns:
@@ -275,17 +271,31 @@ def standardize_ohlc_columns(df):
     
     if rename_dict:
         df = df.rename(columns=rename_dict)
-        logger.debug(f"Renamed columns: {rename_dict}")
+        logger.info(f"Renamed columns: {rename_dict}")
     
-    # Ensure all required columns exist
     required_columns = ['open', 'high', 'low', 'close', 'volume']
     missing_columns = [col for col in required_columns if col not in df.columns]
     
     if missing_columns:
-        logger.error(f"Missing required OHLC columns after standardization: {missing_columns}")
-        raise ValueError(f"Missing required OHLC columns: {missing_columns}. Available columns: {list(df.columns)}")
+        logger.error(f"OHLC_NORMALIZATION_FAILED: missing_columns={missing_columns}, available_columns={list(df.columns)}, shape={df.shape}")
+        if save_failure_sample:
+            try:
+                from pathlib import Path
+                import json
+                debug_dir = Path(__file__).parent.parent / "data" / "debug"
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+                sample_json = debug_dir / f"failed_ohlc_sample_{timestamp}.json"
+                sample_parquet = debug_dir / f"failed_ohlc_sample_{timestamp}.parquet"
+                failure_info = {"timestamp": timestamp, "missing_columns": missing_columns, "available_columns": list(df.columns), "shape": df.shape, "dtypes": {k: str(v) for k, v in df.dtypes.to_dict().items()}, "sample_rows": df.head(5).to_dict('records')}
+                with open(sample_json, 'w') as f:
+                    json.dump(failure_info, f, indent=2, default=str)
+                df.to_parquet(sample_parquet)
+                logger.error(f"Saved failure samples: {sample_json}, {sample_parquet}")
+            except Exception as e:
+                logger.error(f"Failed to save failure sample: {e}")
+        raise ValueError(f"Missing required OHLC columns: {missing_columns}. Available columns: {list(df.columns)}. Check data/debug/ for failure samples.")
     
-    # Ensure numeric dtypes
     for col in required_columns:
         if df[col].dtype == object or df[col].dtype == 'O':
             try:
@@ -295,17 +305,16 @@ def standardize_ohlc_columns(df):
                 logger.error(f"Failed to convert column '{col}' to numeric: {e}")
                 raise ValueError(f"Column '{col}' contains non-numeric data")
     
-    # Fill any NaN values that resulted from coercion
     if df[required_columns].isnull().any().any():
         nan_counts = df[required_columns].isnull().sum()
         logger.warning(f"Found NaN values after numeric conversion: {nan_counts.to_dict()}")
-        # Forward fill then backward fill to handle NaNs
         df[required_columns] = df[required_columns].fillna(method='ffill').fillna(method='bfill')
         remaining_nans = df[required_columns].isnull().sum().sum()
         if remaining_nans > 0:
             logger.error(f"Could not fill all NaN values: {remaining_nans} remaining")
             raise ValueError(f"Data contains unfillable NaN values: {remaining_nans}")
     
+    logger.debug(f"standardize_ohlc_columns: SUCCESS - standardized to {required_columns}")
     return df
 
 

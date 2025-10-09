@@ -132,17 +132,20 @@ class SimpleTradingStrategy:
     def get_orb_levels(self, day_data, orb_window=(11, 12)):
         """Calculate ORB levels for the day based on configured window."""
         start_h, end_h = orb_window
-        
-        # Convert to local timezone for filtering (session trading only)
+        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        missing_cols = [col for col in required_cols if col not in day_data.columns]
+        if missing_cols:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"get_orb_levels: missing columns {missing_cols}, available: {list(day_data.columns)}")
+            from .utils import standardize_ohlc_columns
+            day_data = standardize_ohlc_columns(day_data)
         local_data = day_data.copy()
         local_data.index = local_data.index.tz_convert(self.tz)
         orb_data = local_data[(local_data.index.hour >= start_h) & (local_data.index.hour < end_h)]
-        # Convert back to UTC for calculations
         orb_data.index = orb_data.index.tz_convert(timezone.utc)
-        
         if orb_data.empty:
             return None, None
-        
         orb_high = orb_data['high'].max()
         orb_low = orb_data['low'].min()
         
@@ -203,7 +206,14 @@ class SimpleTradingStrategy:
             return 'long'  # Default fallback
         
         try:
-            # Method 1: Compare close vs open
+            required_cols = ['open', 'high', 'low', 'close', 'volume']
+            missing_cols = [col for col in required_cols if col not in session_data.columns]
+            if missing_cols:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"detect_fallback_direction: missing columns {missing_cols}, available: {list(session_data.columns)}")
+                from .utils import standardize_ohlc_columns
+                session_data = standardize_ohlc_columns(session_data)
             session_open = session_data['open'].iloc[0]
             session_close = session_data['close'].iloc[-1]
             price_change = session_close - session_open
@@ -596,26 +606,29 @@ class SimpleTradingStrategy:
     
     def process_day(self, day_data, date):
         """Process trading for a single day."""
-        # Check if we have a mode-based strategy
         if hasattr(self, 'mode_strategy'):
             return self.mode_strategy.process_day(day_data, date)
-        
         if self.use_multifactor:
-            # Delegate to MultifactorStrategy
             return self.multifactor_strategy.process_day(day_data, date)
-        
         trades = []
-        
-        # Reset daily state
         self.reset_daily_state()
-        
-        # Check daily trend filter first
+        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        missing_cols = [col for col in required_cols if col not in day_data.columns]
+        if missing_cols:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"process_day: missing OHLC columns {missing_cols} in day_data, available: {list(day_data.columns)}, shape={day_data.shape}")
+            from .utils import standardize_ohlc_columns
+            try:
+                day_data = standardize_ohlc_columns(day_data)
+                logger.info(f"process_day: successfully standardized columns for date {date}")
+            except Exception as e:
+                logger.error(f"process_day: failed to standardize columns: {e}")
+                return trades
         if self.use_daily_trend_filter:
             daily_trend = self.compute_daily_trend(date)
             if daily_trend is None:
-                return trades  # Skip if no daily trend data available
-        
-        # Use session data for entries/indicators
+                return trades
         session_data = day_data
 
         # Use new fallback direction detection
@@ -1138,7 +1151,7 @@ class SimpleTradingStrategy:
 
 def run_backtest(symbol, since, until, config):
     """Run the backtest with validation."""
-    print(f"🚀 BTC 1 Trade Per Day Backtester - FINAL VERSION")
+    print(f"[START] BTC 1 Trade Per Day Backtester - FINAL VERSION")
     print("=" * 60)
     print(f"Symbol: {symbol}")
     print(f"Period: {since} to {until}")
@@ -1150,22 +1163,22 @@ def run_backtest(symbol, since, until, config):
     print("=" * 60)
     
     # Fetch data
-    print("\n📊 Fetching historical data...")
+    print("\n[DATA] Fetching historical data...")
     data = fetch_historical_data(symbol, since, until, "15m")
     
     # Fetch daily data for trend filtering if enabled
     daily_data = None
     if config.get('use_daily_trend_filter', False):
-        print("📈 Fetching daily data for trend filtering...")
+        print("[CHART] Fetching daily data for trend filtering...")
         try:
             daily_data = fetch_historical_data(symbol, since, until, "1d")
             if daily_data is not None and not daily_data.empty:
-                print(f"✅ Daily data: {len(daily_data)} candles")
+                print(f"[OK] Daily data: {len(daily_data)} candles")
             else:
-                print("⚠️ No daily data available, disabling trend filter")
+                print("[WARN] No daily data available, disabling trend filter")
                 config['use_daily_trend_filter'] = False
         except Exception as e:
-            print(f"⚠️ Could not fetch daily data: {e}")
+            print(f"[WARN] Could not fetch daily data: {e}")
             config['use_daily_trend_filter'] = False
     
     # Extend data range if needed for exit windows (session trading only)
@@ -1188,19 +1201,19 @@ def run_backtest(symbol, since, until, config):
                         except Exception:
                             pass
         except Exception as e:
-            print(f"⚠️ Could not extend data for exit window: {e}")
+            print(f"[WARN] Could not extend data for exit window: {e}")
     
     if data.empty:
-        print("❌ No data retrieved.")
+        print("[ERROR] No data retrieved.")
         return pd.DataFrame()
     
-    print(f"✅ Data: {len(data)} candles")
+    print(f"[OK] Data: {len(data)} candles")
     
     # Initialize strategy
     strategy = SimpleTradingStrategy(config, daily_data)
     
     # Process each day
-    print("\n🔄 Running backtest...")
+    print("\n[REFRESH] Running backtest...")
     all_trades = []
 
     # Process each day using session trading
@@ -1229,7 +1242,7 @@ def run_backtest(symbol, since, until, config):
     
     # Check if strategy is suitable
     if not results.is_strategy_suitable():
-        print("\n⚠️ WARNING: Strategy failed validation criteria!")
+        print("\n[WARN] WARNING: Strategy failed validation criteria!")
         print("Consider adjusting parameters or strategy configuration.")
     
     return results
@@ -1238,7 +1251,7 @@ def run_backtest(symbol, since, until, config):
 def display_summary(trades_df):
     """Display backtest summary."""
     if trades_df.empty:
-        print("\n❌ No trades generated during backtest period.")
+        print("\n[ERROR] No trades generated during backtest period.")
         return
     
     total_trades = len(trades_df)
@@ -1275,7 +1288,7 @@ def display_summary(trades_df):
     green_days_pct = (green_days / total_days) * 100 if total_days > 0 else 0
     
     print("\n" + "=" * 50)
-    print("📊 BACKTEST SUMMARY")
+    print("[DATA] BACKTEST SUMMARY")
     print("=" * 50)
     print(f"Total Trades: {total_trades}")
     print(f"Win Rate: {win_rate:.1f}% ({winning_trades}/{total_trades})")
@@ -1339,7 +1352,7 @@ def main():
     if not results.empty:
         output_file = "trades_final.csv"
         results.to_csv(output_file, index=False)
-        print(f"\n✅ Results saved to {output_file}")
+        print(f"\n[OK] Results saved to {output_file}")
     
     # Display summary
     display_summary(results)
@@ -1347,10 +1360,10 @@ def main():
     # Create visual report if there are trades
     if not results.empty:
         try:
-            print("\n📊 Creating visual report...")
+            print("\n[DATA] Creating visual report...")
             create_comprehensive_report(results, save_plots=True)
         except Exception as e:
-            print(f"⚠️  Could not create visual report: {e}")
+            print(f"[WARN]  Could not create visual report: {e}")
             print("   Make sure matplotlib and seaborn are installed:")
             print("   pip install matplotlib seaborn")
 

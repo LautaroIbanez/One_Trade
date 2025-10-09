@@ -34,14 +34,14 @@ class DashboardInteractivo:
             if 'symbol' in self.df.columns:
                 self.df = self.df[self.df['symbol'] == self.symbol]
             else:
-                print(f"⚠️ ADVERTENCIA: El archivo 'trades_final.csv' no contiene columna 'symbol'")
-                print(f"📊 Mostrando datos para {self.symbol} sin filtrado por símbolo")
-                print(f"💡 Considera agregar columna 'symbol' al CSV para filtrado automático")
+                print(f"[WARN] ADVERTENCIA: El archivo 'trades_final.csv' no contiene columna 'symbol'")
+                print(f"[DATA] Mostrando datos para {self.symbol} sin filtrado por símbolo")
+                print(f"[INFO] Considera agregar columna 'symbol' al CSV para filtrado automático")
         
         # Validar si hay datos para el símbolo
         if len(self.df) == 0:
-            print(f"❌ ERROR: No se encontraron operaciones para el símbolo {self.symbol}")
-            print(f"📊 Verifica que el archivo CSV contenga datos para este símbolo")
+            print(f"[ERROR] ERROR: No se encontraron operaciones para el símbolo {self.symbol}")
+            print(f"[DATA] Verifica que el archivo CSV contenga datos para este símbolo")
             # Crear métricas vacías para evitar errores
             self.metricas = {
                 'total_trades': 0,
@@ -81,7 +81,7 @@ class DashboardInteractivo:
         """Crea el dashboard interactivo con pestañas"""
         # Crear figura principal
         self.fig = plt.figure(figsize=(16, 10))
-        self.fig.suptitle(f'📊 DASHBOARD COMPLETO - BACKTESTING {self.symbol} 1TPD', fontsize=14, fontweight='bold', y=0.95)
+        self.fig.suptitle(f'[DATA] DASHBOARD COMPLETO - BACKTESTING {self.symbol} 1TPD', fontsize=14, fontweight='bold', y=0.95)
         
         # Crear botones de pestañas
         self.crear_botones_pestañas()
@@ -100,17 +100,17 @@ class DashboardInteractivo:
         """Crea los botones para cambiar entre pestañas"""
         # Botón Pestaña Principal
         ax_btn1 = plt.axes([0.05, 0.92, 0.12, 0.05])
-        self.btn_principal = widgets.Button(ax_btn1, '📊 PRINCIPAL', color='lightblue', hovercolor='lightcyan')
+        self.btn_principal = widgets.Button(ax_btn1, '[DATA] PRINCIPAL', color='lightblue', hovercolor='lightcyan')
         self.btn_principal.on_clicked(self.mostrar_pestaña_principal)
         
         # Botón Pestaña Detallado
         ax_btn2 = plt.axes([0.20, 0.92, 0.12, 0.05])
-        self.btn_detallado = widgets.Button(ax_btn2, '📈 DETALLADO', color='lightgreen', hovercolor='lightcyan')
+        self.btn_detallado = widgets.Button(ax_btn2, '[CHART] DETALLADO', color='lightgreen', hovercolor='lightcyan')
         self.btn_detallado.on_clicked(self.mostrar_pestaña_detallado)
         
         # Botón Pestaña Precios
         ax_btn3 = plt.axes([0.35, 0.92, 0.12, 0.05])
-        self.btn_precios = widgets.Button(ax_btn3, '💰 PRECIOS', color='lightcoral', hovercolor='lightcyan')
+        self.btn_precios = widgets.Button(ax_btn3, '[MONEY] PRECIOS', color='lightcoral', hovercolor='lightcyan')
         self.btn_precios.on_clicked(self.mostrar_pestaña_precios)
         
         # Selector de símbolos
@@ -149,7 +149,7 @@ class DashboardInteractivo:
         ax1.plot(self.df_sorted['exit_time'], self.df_sorted['pnl_acumulado'], linewidth=2, color='#2E8B57', alpha=0.8)
         ax1.fill_between(self.df_sorted['exit_time'], self.df_sorted['pnl_acumulado'], alpha=0.3, color='#2E8B57')
         ax1.axhline(y=0, color='red', linestyle='--', alpha=0.7, linewidth=1.5)
-        ax1.set_title('💰 EQUITY CURVE', fontsize=12, fontweight='bold', pad=10)
+        ax1.set_title('[MONEY] EQUITY CURVE', fontsize=12, fontweight='bold', pad=10)
         ax1.set_ylabel('PnL Acumulado (USDT)', fontsize=10)
         ax1.tick_params(axis='both', labelsize=9)
         ax1.grid(True, alpha=0.3)
@@ -158,18 +158,18 @@ class DashboardInteractivo:
         # 2. Métricas (fila superior, columna derecha)
         ax2 = self.fig.add_subplot(self.gs_principal[0, 1])
         ax2.axis('off')
-        metricas_texto = f"""📊 MÉTRICAS
+        metricas_texto = f"""[DATA] MÉTRICAS
 
-🎯 Trades: {self.metricas['total_trades']}
-✅ Ganadores: {self.metricas['trades_ganadores']}
-❌ Perdedores: {self.metricas['trades_perdedores']}
-📈 Win Rate: {self.metricas['win_rate']:.1f}%
+[TARGET] Trades: {self.metricas['total_trades']}
+[OK] Ganadores: {self.metricas['trades_ganadores']}
+[ERROR] Perdedores: {self.metricas['trades_perdedores']}
+[CHART] Win Rate: {self.metricas['win_rate']:.1f}%
 
-💰 PnL Total: {self.metricas['pnl_total']:.2f} USDT
-📊 Promedio: {self.metricas['pnl_promedio']:.2f} USDT
+[MONEY] PnL Total: {self.metricas['pnl_total']:.2f} USDT
+[DATA] Promedio: {self.metricas['pnl_promedio']:.2f} USDT
 🎲 R-Múltiple: {self.metricas['r_multiple_promedio']:.2f}
 
-📉 Max DD: {self.metricas['max_drawdown']:.2f} USDT"""
+[LOSS] Max DD: {self.metricas['max_drawdown']:.2f} USDT"""
         ax2.text(0.05, 0.95, metricas_texto, transform=ax2.transAxes, fontsize=9, 
                  verticalalignment='top', fontfamily='monospace',
                  bbox=dict(boxstyle="round,pad=0.4", facecolor='lightblue', alpha=0.9))
@@ -184,7 +184,7 @@ class DashboardInteractivo:
         colors = ['#4CAF50', '#F44336']
         
         bars = ax3.bar(tipos, counts, color=colors, alpha=0.7, edgecolor='black', linewidth=0.8)
-        ax3.set_title('📊 OPERACIONES POR TIPO', fontsize=10, fontweight='bold', pad=8)
+        ax3.set_title('[DATA] OPERACIONES POR TIPO', fontsize=10, fontweight='bold', pad=8)
         ax3.set_ylabel('Número de Trades', fontsize=9)
         ax3.tick_params(axis='both', labelsize=8)
         
@@ -206,7 +206,7 @@ class DashboardInteractivo:
         
         bars = ax4.bar(tipos, pnl_tipos, color=colors_pnl, alpha=0.7, edgecolor='black', linewidth=0.8)
         ax4.axhline(y=0, color='black', linestyle='-', alpha=0.5, linewidth=1)
-        ax4.set_title('💰 PnL POR TIPO', fontsize=10, fontweight='bold', pad=8)
+        ax4.set_title('[MONEY] PnL POR TIPO', fontsize=10, fontweight='bold', pad=8)
         ax4.set_ylabel('PnL (USDT)', fontsize=9)
         ax4.tick_params(axis='both', labelsize=8)
         
@@ -226,7 +226,7 @@ class DashboardInteractivo:
         ax5.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=1.2)
         ax5.axvline(x=self.metricas['r_multiple_promedio'], color='green', linestyle='-', linewidth=1.2, 
                    label=f'Prom: {self.metricas["r_multiple_promedio"]:.2f}')
-        ax5.set_title('📈 R-MÚLTIPLES', fontsize=10, fontweight='bold', pad=8)
+        ax5.set_title('[CHART] R-MÚLTIPLES', fontsize=10, fontweight='bold', pad=8)
         ax5.set_xlabel('R-Múltiple', fontsize=9)
         ax5.set_ylabel('Frecuencia', fontsize=9)
         ax5.tick_params(axis='both', labelsize=8)
@@ -240,7 +240,7 @@ class DashboardInteractivo:
         colors = ['#4CAF50', '#F44336']
         wedges, texts, autotexts = ax6.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', 
                                           startangle=90, textprops={'fontsize': 9})
-        ax6.set_title('🎯 GANADORES VS PERDEDORES', fontsize=10, fontweight='bold', pad=8)
+        ax6.set_title('[TARGET] GANADORES VS PERDEDORES', fontsize=10, fontweight='bold', pad=8)
         
         # Ajustar layout
         self.fig.tight_layout()
@@ -270,7 +270,7 @@ class DashboardInteractivo:
         ax2.fill_between(self.df_sorted['exit_time'], self.df_sorted['drawdown'], alpha=0.7, color='#FF4444')
         ax2.axhline(y=self.metricas['max_drawdown'], color='darkred', linestyle='--', alpha=0.8, linewidth=1.5,
                    label=f'Max DD: {self.metricas["max_drawdown"]:.2f}')
-        ax2.set_title('📉 DRAWDOWN', fontsize=10, fontweight='bold', pad=8)
+        ax2.set_title('[LOSS] DRAWDOWN', fontsize=10, fontweight='bold', pad=8)
         ax2.set_ylabel('Drawdown (USDT)', fontsize=9)
         ax2.tick_params(axis='both', labelsize=8)
         ax2.tick_params(axis='x', rotation=45)
@@ -309,7 +309,7 @@ class DashboardInteractivo:
         ax5.axvline(x=0, color='red', linestyle='--', alpha=0.7, linewidth=1.2)
         ax5.axvline(x=self.metricas['pnl_promedio'], color='green', linestyle='-', linewidth=1.2, 
                    label=f'Prom: {self.metricas["pnl_promedio"]:.2f}')
-        ax5.set_title('📊 DISTRIBUCIÓN PnL', fontsize=10, fontweight='bold', pad=8)
+        ax5.set_title('[DATA] DISTRIBUCIÓN PnL', fontsize=10, fontweight='bold', pad=8)
         ax5.set_xlabel('PnL (USDT)', fontsize=9)
         ax5.set_ylabel('Frecuencia', fontsize=9)
         ax5.tick_params(axis='both', labelsize=8)
@@ -367,7 +367,7 @@ class DashboardInteractivo:
                     [trade['entry_price'], trade['exit_price']], 
                     color=color, alpha=alpha, linewidth=1)
         
-        ax1.set_title('💰 OPERACIONES SOBRE PRECIOS DE CIERRE', fontsize=12, fontweight='bold', pad=10)
+        ax1.set_title('[MONEY] OPERACIONES SOBRE PRECIOS DE CIERRE', fontsize=12, fontweight='bold', pad=10)
         ax1.set_ylabel('Precio (USDT)', fontsize=10)
         ax1.tick_params(axis='both', labelsize=9)
         ax1.grid(True, alpha=0.3)
@@ -379,7 +379,7 @@ class DashboardInteractivo:
         ax2.fill_between(self.df_sorted['exit_time'], self.df_sorted['drawdown'], alpha=0.7, color='#FF4444')
         ax2.axhline(y=self.metricas['max_drawdown'], color='darkred', linestyle='--', alpha=0.8, linewidth=2,
                    label=f'Max DD: {self.metricas["max_drawdown"]:.2f} USDT')
-        ax2.set_title('📉 DRAWDOWN', fontsize=10, fontweight='bold', pad=8)
+        ax2.set_title('[LOSS] DRAWDOWN', fontsize=10, fontweight='bold', pad=8)
         ax2.set_ylabel('Drawdown (USDT)', fontsize=9)
         ax2.tick_params(axis='both', labelsize=8)
         ax2.tick_params(axis='x', rotation=45)
@@ -398,7 +398,7 @@ class DashboardInteractivo:
         colors = ['#4CAF50', '#F44336']
         
         bars = ax3.bar(tipos, counts, color=colors, alpha=0.7, edgecolor='black', linewidth=0.8)
-        ax3.set_title('📊 OPERACIONES POR TIPO', fontsize=10, fontweight='bold', pad=8)
+        ax3.set_title('[DATA] OPERACIONES POR TIPO', fontsize=10, fontweight='bold', pad=8)
         ax3.set_ylabel('Número de Trades', fontsize=9)
         ax3.tick_params(axis='both', labelsize=8)
         
@@ -441,7 +441,7 @@ class DashboardInteractivo:
         colors_wr = ['#4CAF50', '#F44336']
         
         bars = ax5.bar(tipos, wr_values, color=colors_wr, alpha=0.7, edgecolor='black', linewidth=0.8)
-        ax5.set_title('🎯 WIN RATE POR TIPO', fontsize=10, fontweight='bold', pad=8)
+        ax5.set_title('[TARGET] WIN RATE POR TIPO', fontsize=10, fontweight='bold', pad=8)
         ax5.set_ylabel('Win Rate (%)', fontsize=9)
         ax5.tick_params(axis='both', labelsize=8)
         ax5.set_ylim(0, 100)
@@ -465,7 +465,7 @@ class DashboardInteractivo:
         self.cargar_datos()
         
         # Actualizar título
-        self.fig.suptitle(f'📊 DASHBOARD COMPLETO - BACKTESTING {self.symbol} 1TPD', fontsize=14, fontweight='bold', y=0.95)
+        self.fig.suptitle(f'[DATA] DASHBOARD COMPLETO - BACKTESTING {self.symbol} 1TPD', fontsize=14, fontweight='bold', y=0.95)
         
         # Refrescar pestaña activa (asumiendo que la principal está activa)
         self.mostrar_pestaña_principal()
@@ -476,7 +476,7 @@ def crear_dashboard_interactivo():
     return dashboard
 
 if __name__ == "__main__":
-    print("🎉 Iniciando Dashboard Interactivo...")
+    print("[CELEBRATE] Iniciando Dashboard Interactivo...")
     dashboard = crear_dashboard_interactivo()
-    print("📊 Dashboard interactivo creado exitosamente!")
-    print("💡 Usa los botones en la parte superior para cambiar entre pestañas")
+    print("[DATA] Dashboard interactivo creado exitosamente!")
+    print("[INFO] Usa los botones en la parte superior para cambiar entre pestañas")

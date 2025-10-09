@@ -37,21 +37,21 @@ Examples:
     
     try:
         # Load trades data
-        print(f"📊 Loading trades from {args.csv_file}...")
+        print(f"[DATA] Loading trades from {args.csv_file}...")
         trades_df = pd.read_csv(args.csv_file)
         
         if trades_df.empty:
-            print("❌ No trades data found in the CSV file")
+            print("[ERROR] No trades data found in the CSV file")
             return
         
-        print(f"✅ Loaded {len(trades_df)} trades")
+        print(f"[OK] Loaded {len(trades_df)} trades")
         
         # Display basic info
         total_pnl = trades_df['pnl_usdt'].sum()
         win_rate = (len(trades_df[trades_df['pnl_usdt'] > 0]) / len(trades_df)) * 100
         
-        print(f"📈 Total PnL: {total_pnl:+.2f} USDT")
-        print(f"🎯 Win Rate: {win_rate:.1f}%")
+        print(f"[CHART] Total PnL: {total_pnl:+.2f} USDT")
+        print(f"[TARGET] Win Rate: {win_rate:.1f}%")
         
         # Create comprehensive report
         title = args.title or f"Trading Report - {args.csv_file}"
@@ -65,7 +65,7 @@ Examples:
         
         try:
             create_comprehensive_report(trades_df, save_plots=not args.no_save)
-            print("✅ Visual report completed!")
+            print("[OK] Visual report completed!")
             
             if not args.no_save:
                 print(f"📁 Plots saved in: {os.getcwd()}")
@@ -75,12 +75,12 @@ Examples:
             os.chdir(original_dir)
         
     except FileNotFoundError:
-        print(f"❌ File not found: {args.csv_file}")
+        print(f"[ERROR] File not found: {args.csv_file}")
         print("   Make sure the CSV file exists and the path is correct.")
     except pd.errors.EmptyDataError:
-        print("❌ The CSV file is empty")
+        print("[ERROR] The CSV file is empty")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"[ERROR] Error: {e}")
 
 
 if __name__ == "__main__":

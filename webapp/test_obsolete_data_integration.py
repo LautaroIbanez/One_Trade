@@ -109,7 +109,7 @@ def test_load_trades_with_stale_data():
             yesterday = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
             assert trades.attrs["stale_last_until"] == yesterday, f"Expected {yesterday}, got {trades.attrs['stale_last_until']}"
             
-            print("✅ load_trades correctly preserves stale data and marks it")
+            print("[OK] load_trades correctly preserves stale data and marks it")
             
     finally:
         # Cleanup
@@ -146,7 +146,7 @@ def test_dashboard_alert_with_stale_data():
             assert "Datos actualizados hasta" in alert_msg, "Alert should contain update date"
             assert "desactualizados" in alert_msg, "Alert should mention data may be outdated"
             
-            print("✅ Dashboard correctly generates alert for stale data")
+            print("[OK] Dashboard correctly generates alert for stale data")
             
     finally:
         # Cleanup
@@ -214,7 +214,7 @@ def test_fresh_data_no_alert():
             has_stale_attr = hasattr(trades, 'attrs') and "stale_last_until" in trades.attrs
             assert not has_stale_attr, "Fresh data should not have stale attribute"
             
-            print("✅ Fresh data correctly loaded without stale attribute")
+            print("[OK] Fresh data correctly loaded without stale attribute")
             
     finally:
         # Cleanup

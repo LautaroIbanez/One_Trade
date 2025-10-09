@@ -70,7 +70,7 @@ def test_strategy_signal_validation():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", f"Should not generate alert for matching signals, got: {validation_alert}"
     
@@ -85,13 +85,13 @@ def test_strategy_signal_validation():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert != "", "Should generate alert for mismatched signals"
     assert "SHORT" in validation_alert, "Alert should contain strategy signal"
     assert "LONG" in validation_alert, "Alert should contain recent trade side"
     
-    print("✅ Strategy signal validation test passed")
+    print("[OK] Strategy signal validation test passed")
 
 
 def test_inversion_display_logic():
@@ -133,11 +133,11 @@ def test_inversion_display_logic():
             if recent_side:
                 # Compare original signals (not inverted for display)
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Validation should use original signal, not display signal"
     
-    print("✅ Inversion display logic test passed")
+    print("[OK] Inversion display logic test passed")
 
 
 def test_edge_cases():
@@ -155,7 +155,7 @@ def test_edge_cases():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Should not generate alert for empty trades"
     
@@ -170,7 +170,7 @@ def test_edge_cases():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Should not generate alert when no strategy signal"
     
@@ -185,11 +185,11 @@ def test_edge_cases():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     assert validation_alert == "", "Should not generate alert when trades have no side column"
     
-    print("✅ Edge cases test passed")
+    print("[OK] Edge cases test passed")
 
 
 def test_alert_message_format():
@@ -207,16 +207,16 @@ def test_alert_message_format():
             recent_side = recent_trade.get("side")
             if recent_side:
                 if strategy_signal.lower() != recent_side.lower():
-                    validation_alert = f"⚠️ Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
+                    validation_alert = f"[WARN] Inconsistencia detectada: Señal de estrategia ({strategy_signal.upper()}) no coincide con trade más reciente ({recent_side.upper()})"
     
     # Check message format
-    assert "⚠️ Inconsistencia detectada:" in validation_alert, "Alert should contain warning emoji and text"
+    assert "[WARN] Inconsistencia detectada:" in validation_alert, "Alert should contain warning emoji and text"
     assert "Señal de estrategia" in validation_alert, "Alert should mention strategy signal"
     assert "no coincide con trade más reciente" in validation_alert, "Alert should mention trade mismatch"
     assert "SHORT" in validation_alert, "Alert should contain strategy signal in uppercase"
     assert "LONG" in validation_alert, "Alert should contain recent trade side in uppercase"
     
-    print("✅ Alert message format test passed")
+    print("[OK] Alert message format test passed")
 
 
 def main():
