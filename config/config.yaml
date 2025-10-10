@@ -1,0 +1,169 @@
+# One Trade System Configuration
+# Archivo de configuración principal para backtest y trading en vivo
+
+# === EXCHANGE CONFIGURATION ===
+exchange:
+  name: "binance"  # binance | bybit (solo binance en fase 1)
+  api_key: ""  # Opcional para datos públicos
+  api_secret: ""
+  testnet: false
+  rate_limit:
+    max_requests_per_minute: 1200
+    retry_attempts: 5
+    backoff_base: 2  # segundos, exponencial
+    backoff_max: 60
+
+# === DATA CONFIGURATION ===
+data:
+  symbols:
+    - "BTC/USDT"
+    - "ETH/USDT"
+  timeframes:
+    - "15m"
+    - "1d"
+  storage_path: "data_incremental"
+  format: "csv"  # csv | parquet
+  incremental_update: true
+  reconciliation:
+    check_gaps: true
+    max_gap_minutes: 30  # alertar si hay huecos mayores
+    allow_corrections: true  # permitir correcciones de velas
+
+# === TIMEZONE CONFIGURATION ===
+timezone:
+  local: "America/Argentina/Buenos_Aires"  # ART
+  exchange: "UTC"
+
+# === STRATEGY CONFIGURATION ===
+strategy:
+  type: "current"  # current | baseline | custom
+  
+  # Configuración estrategia actual (del sistema existente)
+  current:
+    indicators:
+      ema_fast: 12
+      ema_slow: 26
+      rsi_period: 14
+      rsi_oversold: 30
+      rsi_overbought: 70
+      macd_fast: 12
+      macd_slow: 26
+      macd_signal: 9
+    entry_conditions:
+      require_ema_cross: true
+      require_rsi_confirmation: true
+      require_macd_confirmation: true
+  
+  # Configuración estrategia baseline (simple)
+  baseline:
+    indicators:
+      ema_period: 50
+      rsi_period: 14
+      rsi_oversold: 35
+      rsi_overbought: 65
+    entry_conditions:
+      price_above_ema: true  # Long solo si precio > EMA
+      rsi_range: true  # RSI no debe estar en extremos
+
+# === SCHEDULING CONFIGURATION ===
+scheduling:
+  entry_window:
+    start: "06:00"  # ART
+    end: "12:00"    # ART
+  forced_close_window:
+    start: "19:00"  # ART
+    end: "20:00"    # ART
+  max_trades_per_day: 1
+  enforce_daily_limit: true
+
+# === RISK MANAGEMENT ===
+risk:
+  # Stop Loss configuration
+  stop_loss:
+    type: "atr"  # atr | percentage | fixed
+    atr_multiplier: 2.0
+    percentage: 2.0  # % si type=percentage
+    fixed_points: 100  # points si type=fixed
+  
+  # Take Profit configuration
+  take_profit:
+    type: "atr"  # atr | percentage | fixed | none
+    atr_multiplier: 3.0
+    percentage: 4.0
+    fixed_points: 200
+  
+  # Position sizing
+  position_sizing:
+    method: "fixed_risk"  # fixed_risk | fixed_amount | kelly
+    risk_per_trade_pct: 1.0  # % del capital en riesgo por trade
+    max_position_pct: 10.0   # % máximo del capital en una posición
+  
+  # ATR configuration (para stops/targets dinámicos)
+  atr:
+    period: 14
+    timeframe: "1d"  # usar ATR de 1d para calcular stops
+
+# === BROKER SIMULATION ===
+broker:
+  initial_capital: 10000.0
+  quote_currency: "USDT"
+  fees:
+    maker: 0.0010  # 0.1%
+    taker: 0.0010
+  slippage:
+    enabled: true
+    percentage: 0.05  # 0.05% slippage simulado
+  
+# === BACKTEST CONFIGURATION ===
+backtest:
+  start_date: "2023-01-01"  # YYYY-MM-DD
+  end_date: null  # null = hasta hoy
+  warmup_periods: 50  # periodos de warmup para indicadores
+  save_trades: true
+  trades_output:
+    path: "data_incremental/backtest_results"
+    format: "csv"  # csv | parquet | both
+  save_equity_curve: true
+  
+# === METRICS CONFIGURATION ===
+metrics:
+  risk_free_rate: 0.02  # 2% anual para Sharpe
+  benchmark_symbol: "BTC/USDT"
+  calculate:
+    - "total_return"
+    - "cagr"
+    - "sharpe_ratio"
+    - "max_drawdown"
+    - "win_rate"
+    - "profit_factor"
+    - "expectancy"
+    - "average_win"
+    - "average_loss"
+    - "largest_win"
+    - "largest_loss"
+    - "daily_pnl_distribution"
+
+# === LOGGING CONFIGURATION ===
+logging:
+  level: "INFO"  # DEBUG | INFO | WARNING | ERROR
+  format: "structured"  # structured | simple
+  output:
+    console: true
+    file: true
+    file_path: "logs/one_trade.log"
+  log_trades: true
+  log_signals: true
+  log_scheduler_events: true
+
+# === REPRODUCIBILITY ===
+reproducibility:
+  seed: 42
+  deterministic: true
+
+# === VALIDATION ===
+validation:
+  strict_mode: true  # assertions en scheduler y backtest
+  check_trade_limit_daily: true
+  check_entry_windows: true
+  check_forced_close: true
+

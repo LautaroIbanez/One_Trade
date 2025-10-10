@@ -1,0 +1,52 @@
+# One Trade System - Dependencies
+# Python 3.10+ required (check with: python --version)
+
+# Exchange APIs
+ccxt>=4.0.0
+
+# Data handling
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=12.0.0  # For parquet support
+
+# Configuration
+pydantic>=2.0.0
+pyyaml>=6.0
+
+# Technical indicators
+# ta-lib>=0.4.28  # Optional: Requires system ta-lib installation first
+# pandas-ta>=0.3.14b  # Optional: Alternative pure Python indicators
+
+# Timezone handling
+pytz>=2023.3
+
+# Logging
+structlog>=23.1.0
+
+# CLI
+click>=8.1.0
+rich>=13.0.0  # For beautiful CLI output
+
+# Web Interface
+dash>=2.14.0
+dash-bootstrap-components>=1.5.0
+
+# Testing
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-asyncio>=0.21.0
+
+# Code quality
+black>=23.7.0
+isort>=5.12.0
+mypy>=1.4.0
+flake8>=6.0.0
+
+# Plotting (optional, for equity curves)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Utilities
+python-dateutil>=2.8.2
+requests>=2.31.0
+
