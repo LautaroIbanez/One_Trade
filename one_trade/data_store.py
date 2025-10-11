@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
+from functools import lru_cache
 
 import pandas as pd
 import pytz
@@ -20,6 +21,7 @@ class DataStore:
         self.local_tz = pytz.timezone(local_tz)
         if self.data_format not in ["csv", "parquet"]:
             raise ValueError(f"Invalid data format: {self.data_format}. Must be 'csv' or 'parquet'.")
+        self._data_cache = {}
     
     def _get_file_path(self, symbol: str, timeframe: str) -> Path:
         """Get file path for symbol and timeframe. Args: symbol: Trading symbol (e.g., 'BTC/USDT'). timeframe: Timeframe (e.g., '15m', '1d'). Returns: Path to data file."""
@@ -109,6 +111,31 @@ class DataStore:
                 gaps.append({"start": current, "end": next_ts, "duration_minutes": diff_minutes, "expected_minutes": expected_diff})
         return gaps
     
+    def read_data_filtered(self, symbol: str, timeframe: str, start_date: Optional[str] = None, end_date: Optional[str] = None) -> Tuple[Optional[pd.DataFrame], Optional[datetime]]:
+        """Read data with date filtering and caching. Args: symbol: Trading symbol. timeframe: Timeframe. start_date: Start date (YYYY-MM-DD). end_date: End date (YYYY-MM-DD). Returns: Tuple of (filtered DataFrame or None, last_timestamp_utc or None)."""
+        cache_key = f"{symbol}_{timeframe}_{start_date}_{end_date}"
+        if cache_key in self._data_cache:
+            return self._data_cache[cache_key]
+        data, last_timestamp = self.read_data(symbol, timeframe)
+        if data is None or data.empty:
+            return None, None
+        if start_date or end_date:
+            filtered_data = data.copy()
+            if start_date:
+                start_dt = pd.to_datetime(start_date).replace(tzinfo=timezone.utc)
+                filtered_data = filtered_data[filtered_data["timestamp_utc"] >= start_dt]
+            if end_date:
+                end_dt = pd.to_datetime(end_date).replace(tzinfo=timezone.utc)
+                filtered_data = filtered_data[filtered_data["timestamp_utc"] <= end_dt]
+            result = (filtered_data, last_timestamp)
+        else:
+            result = (data, last_timestamp)
+        if len(self._data_cache) > 10:
+            oldest_key = next(iter(self._data_cache))
+            del self._data_cache[oldest_key]
+        self._data_cache[cache_key] = result
+        return result
+    
     def get_date_range(self, symbol: str, timeframe: str) -> Tuple[Optional[datetime], Optional[datetime]]:
         """Get the date range of stored data. Args: symbol: Trading symbol. timeframe: Timeframe. Returns: Tuple of (first_timestamp, last_timestamp) or (None, None)."""
         existing_data, _ = self.read_data(symbol, timeframe)
@@ -116,11 +143,16 @@ class DataStore:
             return None, None
         return existing_data["timestamp_utc"].min(), existing_data["timestamp_utc"].max()
     
+    def clear_cache(self) -> None:
+        """Clear the data cache."""
+        self._data_cache = {}
+    
     def delete_data(self, symbol: str, timeframe: str) -> None:
         """Delete data file for symbol and timeframe. Args: symbol: Trading symbol. timeframe: Timeframe."""
         file_path = self._get_file_path(symbol, timeframe)
         if file_path.exists():
             file_path.unlink()
+        self.clear_cache()
 
 
 

@@ -50,9 +50,14 @@ _cache_timestamp = datetime.now().timestamp()
 
 # Global state for async operations (thread-safe approach)
 import threading
+import queue
 _backtest_futures = {}
 _data_futures = {}
+_progress_queues = {}
+_log_buffers = {}
 _futures_lock = threading.Lock()
+_engine_pool = {}
+_engine_pool_lock = threading.Lock()
 
 
 def invalidate_cache():
@@ -60,6 +65,20 @@ def invalidate_cache():
     global _cache_timestamp
     _cache_timestamp = datetime.now().timestamp()
     load_saved_backtests.cache_clear()
+
+
+def get_engine_from_pool(strategy: str) -> BacktestEngine:
+    """Get or create a BacktestEngine from the pool."""
+    pool_key = f"engine_{strategy}"
+    with _engine_pool_lock:
+        if pool_key not in _engine_pool:
+            logger.info(f"Creating new BacktestEngine for strategy: {strategy}")
+            temp_config = load_config("config/config.yaml")
+            temp_config.strategy.type = StrategyType(strategy)
+            _engine_pool[pool_key] = BacktestEngine(temp_config)
+        else:
+            logger.debug(f"Reusing existing BacktestEngine for strategy: {strategy}")
+        return _engine_pool[pool_key]
 
 
 @lru_cache(maxsize=1)
@@ -139,22 +158,55 @@ def load_saved_backtests() -> List[Dict]:
     return backtests
 
 
-def run_backtest_async(symbol: str, strategy: str, start_date: str, end_date: str) -> Dict:
+def log_backtest_performance(symbol: str, strategy: str, start_date: str, end_date: str, elapsed_time: float, total_trades: int, success: bool, error_msg: str = None) -> None:
+    """Log backtest performance metrics to CSV."""
+    try:
+        perf_log_path = Path("logs/backtest_performance.csv")
+        perf_log_path.parent.mkdir(exist_ok=True)
+        log_entry = {"timestamp": datetime.now().isoformat(), "symbol": symbol, "strategy": strategy, "start_date": start_date, "end_date": end_date, "elapsed_time": elapsed_time, "total_trades": total_trades, "success": success, "error": error_msg or ""}
+        log_df = pd.DataFrame([log_entry])
+        if perf_log_path.exists():
+            log_df.to_csv(perf_log_path, mode='a', header=False, index=False)
+        else:
+            log_df.to_csv(perf_log_path, mode='w', header=True, index=False)
+        logger.info(f"Performance metrics logged: {elapsed_time:.2f}s, {total_trades} trades")
+    except Exception as e:
+        logger.error(f"Failed to log performance metrics: {e}")
+
+
+def run_backtest_async(symbol: str, strategy: str, start_date: str, end_date: str, timestamp: str) -> Dict:
     """Run backtest in background thread."""
     logger.info(f"Starting backtest: symbol={symbol}, strategy={strategy}, start={start_date}, end={end_date}")
     try:
-        config.strategy.type = StrategyType(strategy)
-        engine_temp = BacktestEngine(config)
-        results = engine_temp.run_backtest(symbol, start_date, end_date)
-        logger.info(f"Backtest completed successfully: {results['metrics'].total_trades} trades")
-        
-        # Invalidate cache to force reload
+        progress_queue = queue.Queue()
+        log_buffer = []
+        with _futures_lock:
+            _progress_queues[timestamp] = progress_queue
+            _log_buffers[timestamp] = log_buffer
+        def progress_callback(data: Dict):
+            progress_queue.put(data)
+            log_buffer.append({"timestamp": datetime.now().isoformat(), "message": data.get("message", ""), "stage": data.get("stage", "")})
+            if len(log_buffer) > 50:
+                log_buffer.pop(0)
+            logger.info(f"Progress: {data.get('message', '')}")
+        engine_temp = get_engine_from_pool(strategy)
+        results = engine_temp.run_backtest(symbol, start_date, end_date, progress_callback=progress_callback)
+        elapsed_time = results.get('elapsed_time', 0)
+        total_trades = results['metrics'].total_trades
+        logger.info(f"Backtest completed successfully: {total_trades} trades in {elapsed_time:.2f}s")
+        log_backtest_performance(symbol, strategy, start_date, end_date, elapsed_time, total_trades, True)
         invalidate_cache()
-        
         return {"success": True, "results": results}
     except Exception as e:
         logger.error(f"Backtest failed: {e}", exc_info=True)
+        log_backtest_performance(symbol, strategy, start_date, end_date, 0, 0, False, str(e))
         return {"success": False, "error": str(e)}
+    finally:
+        with _futures_lock:
+            if timestamp in _progress_queues:
+                del _progress_queues[timestamp]
+            if timestamp in _log_buffers:
+                del _log_buffers[timestamp]
 
 
 def update_data_async(symbols: List[str], timeframes: List[str]) -> Dict:
@@ -332,7 +384,9 @@ def create_backtest_content():
                 dbc.Card([
                     dbc.CardBody([
                         html.H5("📊 Estado del Backtest", className="card-title"),
-                        html.Div(id="backtest-progress")
+                        html.Div(id="backtest-progress"),
+                        html.Hr(),
+                        dbc.Button([html.I(className="fas fa-times-circle me-2"), "Cancelar Backtest"], id="cancel-backtest-btn", color="danger", size="sm", className="w-100", disabled=True)
                     ])
                 ], className="shadow")
             ], width=4)
@@ -496,60 +550,72 @@ def render_data_content(active_tab):
     [Output("backtest-state", "data"),
      Output("backtest-progress", "children"),
      Output("backtest-results", "children"),
-     Output("backtest-completion-event", "data")],
+     Output("backtest-completion-event", "data"),
+     Output("cancel-backtest-btn", "disabled")],
     [Input("run-backtest-btn", "n_clicks"),
-     Input("status-interval", "n_intervals")],
+     Input("status-interval", "n_intervals"),
+     Input("cancel-backtest-btn", "n_clicks")],
     [State("symbol-select", "value"),
      State("strategy-select", "value"),
      State("start-date", "date"),
      State("end-date", "date"),
      State("backtest-state", "data")]
 )
-def run_backtest(n_clicks, n_intervals, symbol, strategy, start_date, end_date, state):
+def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_date, end_date, state):
     """Execute backtest with reactive state management."""
     ctx = callback_context
-    
     if not ctx.triggered:
         initial_state = {"running": False, "result": None, "timestamp": None}
-        return initial_state, dbc.Alert("Listo para ejecutar backtest", color="info"), "", {"completed": False, "timestamp": None}
-    
+        return initial_state, dbc.Alert("Listo para ejecutar backtest", color="info"), "", {"completed": False, "timestamp": None}, True
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
-    
-    if trigger_id == "run-backtest-btn" and n_clicks:
-        logger.info(f"Backtest button clicked: {symbol}, {strategy}, {start_date} to {end_date}")
-        
-        # Start backtest
-        progress = dbc.Alert([
-            dbc.Spinner(size="sm"),
-            f" Ejecutando backtest para {symbol} con estrategia {strategy}..."
-        ], color="info")
-        
-        # Submit to thread pool
-        future = executor.submit(run_backtest_async, symbol, strategy, start_date, end_date)
-        timestamp = datetime.now().timestamp()
-        
-        new_state = {
-            "running": True,
-            "result": None,
-            "timestamp": timestamp,
-            "future": str(timestamp)  # Use timestamp as future identifier
-        }
-        
-        # Store future in a global dict (thread-safe approach)
-        with _futures_lock:
-            _backtest_futures[str(timestamp)] = future
-        
-        return new_state, progress, "", {"completed": False, "timestamp": None}
-    
-    elif trigger_id == "status-interval" and state.get("running"):
-        # Check if backtest completed
+    if trigger_id == "cancel-backtest-btn" and cancel_clicks and state.get("running"):
+        logger.info("Backtest cancelation requested")
         timestamp = state.get("future")
-        logger.debug(f"Checking backtest status - timestamp: {timestamp}, running: {state.get('running')}")
-        
         if timestamp:
             with _futures_lock:
                 future = _backtest_futures.get(timestamp)
-            
+            if future and not future.done():
+                future.cancel()
+                logger.info(f"Backtest future cancelled: {timestamp}")
+        cancelled_state = {"running": False, "result": None, "timestamp": None}
+        cancelled_alert = dbc.Alert([html.I(className="fas fa-exclamation-circle me-2"), "Backtest cancelado por el usuario"], color="warning")
+        return cancelled_state, cancelled_alert, "", {"completed": False, "timestamp": None}, True
+    if trigger_id == "run-backtest-btn" and n_clicks:
+        logger.info(f"Backtest button clicked: {symbol}, {strategy}, {start_date} to {end_date}")
+        timestamp = str(datetime.now().timestamp())
+        future = executor.submit(run_backtest_async, symbol, strategy, start_date, end_date, timestamp)
+        progress = dbc.Alert([dbc.Spinner(size="sm"), f" Ejecutando backtest para {symbol} con estrategia {strategy}..."], color="info")
+        new_state = {"running": True, "result": None, "timestamp": datetime.now().timestamp(), "future": timestamp}
+        with _futures_lock:
+            _backtest_futures[timestamp] = future
+        return new_state, progress, "", {"completed": False, "timestamp": None}, False
+    
+    elif trigger_id == "status-interval" and state.get("running"):
+        timestamp = state.get("future")
+        logger.debug(f"Checking backtest status - timestamp: {timestamp}, running: {state.get('running')}")
+        if timestamp:
+            with _futures_lock:
+                future = _backtest_futures.get(timestamp)
+                progress_queue = _progress_queues.get(timestamp)
+                log_buffer = _log_buffers.get(timestamp)
+            if progress_queue:
+                latest_progress = None
+                try:
+                    while True:
+                        latest_progress = progress_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                if latest_progress:
+                    progress_pct = latest_progress.get("progress", 0)
+                    message = latest_progress.get("message", "Procesando...")
+                    stage = latest_progress.get("stage", "")
+                    trades_count = latest_progress.get("trades_count", 0)
+                    progress_content = html.Div([dbc.Progress(value=progress_pct, label=f"{progress_pct}%", className="mb-2", striped=True, animated=True), html.P(message, className="mb-2"), html.Small(f"Operaciones detectadas: {trades_count}", className="text-muted") if trades_count > 0 else html.Small("Buscando operaciones...", className="text-muted")])
+                    if log_buffer and len(log_buffer) > 0:
+                        recent_logs = log_buffer[-5:]
+                        log_items = [html.Li([html.Small(f"{log['timestamp'].split('T')[1].split('.')[0]}: ", className="text-muted"), html.Span(log['message'])], className="list-group-item list-group-item-action py-1") for log in recent_logs]
+                        progress_content = html.Div([progress_content, html.Hr(), html.H6("Log reciente:", className="mt-3"), dbc.ListGroup(log_items, className="small")])
+                    return dash.no_update, progress_content, dash.no_update, dash.no_update, False
             if future and future.done():
                 logger.info(f"Backtest future completed for timestamp: {timestamp}")
                 result = future.result()
@@ -558,57 +624,19 @@ def run_backtest(n_clicks, n_intervals, symbol, strategy, start_date, end_date, 
                         del _backtest_futures[timestamp]
                 
                 logger.info(f"Backtest completed: success={result.get('success')}")
-                
                 if result['success']:
                     metrics = result['results']['metrics']
-                    success_alert = dbc.Alert([
-                        html.I(className="fas fa-check-circle me-2"),
-                        f"Backtest completado! {metrics.total_trades} trades, Return: {metrics.total_return_pct:+.2f}%"
-                    ], color="success")
-                    
-                    results_content = dbc.Card([
-                        dbc.CardBody([
-                            html.H5("📊 Resultados del Backtest", className="card-title"),
-                            dbc.Row([
-                                dbc.Col([
-                                    html.H6("Total Return"),
-                                    html.H4(f"${metrics.total_return:.2f}", 
-                                           className="text-success" if metrics.total_return >= 0 else "text-danger")
-                                ], width=3),
-                                dbc.Col([
-                                    html.H6("Win Rate"),
-                                    html.H4(f"{metrics.win_rate:.1f}%", className="text-info")
-                                ], width=3),
-                                dbc.Col([
-                                    html.H6("Total Trades"),
-                                    html.H4(f"{metrics.total_trades}", className="text-primary")
-                                ], width=3),
-                                dbc.Col([
-                                    html.H6("Profit Factor"),
-                                    html.H4(f"{metrics.profit_factor:.2f}", className="text-warning")
-                                ], width=3)
-                            ])
-                        ])
-                    ])
-                    
-                    # Signal completion event
-                    completion_event = {
-                        "completed": True,
-                        "timestamp": datetime.now().timestamp()
-                    }
-                    
+                    elapsed_time = result['results'].get('elapsed_time', 0)
+                    success_alert = dbc.Alert([html.I(className="fas fa-check-circle me-2"), f"Backtest completado! {metrics.total_trades} trades, Return: {metrics.total_return_pct:+.2f}% (Duración: {elapsed_time:.2f}s)"], color="success")
+                    results_content = dbc.Card([dbc.CardBody([html.H5("📊 Resultados del Backtest", className="card-title"), dbc.Row([dbc.Col([html.H6("Total Return"), html.H4(f"${metrics.total_return:.2f}", className="text-success" if metrics.total_return >= 0 else "text-danger")], width=3), dbc.Col([html.H6("Win Rate"), html.H4(f"{metrics.win_rate:.1f}%", className="text-info")], width=3), dbc.Col([html.H6("Total Trades"), html.H4(f"{metrics.total_trades}", className="text-primary")], width=3), dbc.Col([html.H6("Profit Factor"), html.H4(f"{metrics.profit_factor:.2f}", className="text-warning")], width=3)]), html.Hr(), html.Div([html.Small(f"Duración del backtest: {elapsed_time:.2f} segundos", className="text-muted")])])])
+                    completion_event = {"completed": True, "timestamp": datetime.now().timestamp()}
                     completed_state = {"running": False, "result": result, "timestamp": None}
-                    return completed_state, success_alert, results_content, completion_event
+                    return completed_state, success_alert, results_content, completion_event, True
                 else:
-                    error_alert = dbc.Alert([
-                        html.I(className="fas fa-exclamation-triangle me-2"),
-                        f"Error: {result['error']}"
-                    ], color="danger")
-                    
+                    error_alert = dbc.Alert([html.I(className="fas fa-exclamation-triangle me-2"), f"Error: {result['error']}"], color="danger")
                     completed_state = {"running": False, "result": result, "timestamp": None}
-                    return completed_state, error_alert, "", {"completed": False, "timestamp": None}
-    
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    return completed_state, error_alert, "", {"completed": False, "timestamp": None}, True
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 
 @app.callback(
