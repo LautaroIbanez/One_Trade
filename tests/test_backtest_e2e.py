@@ -79,3 +79,5 @@ def test_backtest_validates_entry_window(mock_config, mock_data):
             entry_hour = trade.entry_time_art.hour
             assert 6 <= entry_hour <= 12, f"Entry outside window: {entry_hour}:00 ART"
 
+
+

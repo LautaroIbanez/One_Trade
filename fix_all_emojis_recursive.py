@@ -29,3 +29,5 @@ for file_path in py_files:
 print(f"\nTotal: Fixed {total_changes} emojis in {files_changed} files ({len(py_files)} scanned)")
 
 
+
+

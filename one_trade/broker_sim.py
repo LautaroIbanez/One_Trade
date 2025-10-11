@@ -181,3 +181,5 @@ class BrokerSimulator:
         """Reset broker to initial state."""
         self.state = BrokerState(capital=self.initial_capital, equity=self.initial_capital)
 
+
+

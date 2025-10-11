@@ -10,21 +10,25 @@ sys.path.insert(0, str(Path(__file__).parent))
 from webapp_v2.interactive_app import app
 
 if __name__ == "__main__":
-    # Initialize server config
-    with app.server.app_context():
-        app.server.config['backtest_running'] = False
-        app.server.config['data_running'] = False
-        app.server.config['new_backtest_completed'] = False
-    
     print("="*70)
-    print("🚀 One Trade v2.0 - Interactive Web Interface")
+    print("🚀 One Trade v2.0 - Interactive Web Interface (Improved)")
     print("="*70)
     print("📊 Dashboard: http://127.0.0.1:8053")
+    print("")
     print("📈 Features:")
-    print("   - Interactive backtest execution")
-    print("   - Real-time data updates")
-    print("   - Live progress indicators")
-    print("   - View saved backtests")
+    print("   ✓ Interactive backtest execution with ThreadPoolExecutor")
+    print("   ✓ Real-time data updates")
+    print("   ✓ Automatic Dashboard refresh on backtest completion")
+    print("   ✓ Reactive state management with dcc.Store")
+    print("   ✓ Optimized loading with caching")
+    print("   ✓ Robust error handling and logging")
+    print("")
+    print("🔧 Improvements:")
+    print("   • Replaced Flask config with Dash Store components")
+    print("   • Thread-safe async operations")
+    print("   • Automatic cache invalidation")
+    print("   • Enhanced validation and error messages")
+    print("")
     print("⚡ Press Ctrl+C to stop the server")
     print("="*70)
     print()

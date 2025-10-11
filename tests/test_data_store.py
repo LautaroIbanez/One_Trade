@@ -74,3 +74,5 @@ def test_get_date_range(temp_storage):
     assert first == start
     assert last == end
 
+
+

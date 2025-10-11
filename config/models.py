@@ -310,3 +310,5 @@ def load_config(config_path: str = "config/config.yaml") -> Config:
         config_dict = yaml.safe_load(f)
     return Config(**config_dict)
 
+
+

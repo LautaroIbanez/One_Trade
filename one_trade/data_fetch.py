@@ -115,3 +115,5 @@ class DataFetcher:
             return pd.DataFrame(columns=["timestamp_utc", "open", "high", "low", "close", "volume"])
         return pd.concat(gap_data, ignore_index=True).drop_duplicates(subset=["timestamp_utc"]).reset_index(drop=True)
 
+
+

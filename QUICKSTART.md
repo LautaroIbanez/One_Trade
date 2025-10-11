@@ -309,3 +309,5 @@ Si encuentras problemas:
 
 **¡Listo!** Ya puedes comenzar a hacer backtesting con One Trade v2.0 🚀
 
+
+

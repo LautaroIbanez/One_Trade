@@ -392,3 +392,5 @@ Para issues, consultas o mejoras, revisar:
 - Tests con `pytest -v`
 - Validación con `python -m cli.main validate`
 
+
+

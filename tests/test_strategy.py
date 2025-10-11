@@ -68,3 +68,5 @@ def test_baseline_strategy_should_close(sample_data):
     should_close, reason = strategy.should_close(sample_data, 50, "long", entry_price, entry_time)
     assert isinstance(should_close, bool)
 
+
+

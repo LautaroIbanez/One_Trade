@@ -172,3 +172,5 @@ if __name__ == "__main__":
         print(f"\n❌ Opción inválida. Ejecutando análisis por defecto...")
         analyze_btc_needs()
 
+
+
