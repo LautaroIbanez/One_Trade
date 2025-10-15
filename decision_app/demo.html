@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One Trade Decision App - Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: #1a1a1a;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .content {
+            padding: 30px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            border-left: 4px solid #007bff;
+        }
+        .card h3 {
+            margin: 0 0 15px 0;
+            color: #333;
+        }
+        .recommendation {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .buy { border-left: 4px solid #28a745; }
+        .sell { border-left: 4px solid #dc3545; }
+        .hold { border-left: 4px solid #ffc107; }
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status.buy { background: #d4edda; color: #155724; }
+        .status.sell { background: #f8d7da; color: #721c24; }
+        .status.hold { background: #fff3cd; color: #856404; }
+        .btn {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 5px;
+        }
+        .btn:hover { background: #0056b3; }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 One Trade Decision App</h1>
+            <p>Sistema Inteligente de Recomendaciones de Trading</p>
+        </div>
+        
+        <div class="content">
+            <div class="grid">
+                <div class="card">
+                    <h3>📊 Estado del Sistema</h3>
+                    <div id="system-status">
+                        <div class="loading">Verificando estado...</div>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h3>🎯 Recomendaciones Activas</h3>
+                    <div id="recommendations">
+                        <div class="loading">Cargando recomendaciones...</div>
+                    </div>
+                    <button class="btn" onclick="generateRecommendation()">Generar Nueva</button>
+                </div>
+                
+                <div class="card">
+                    <h3>📈 Datos de Mercado</h3>
+                    <div id="market-data">
+                        <div class="loading">Cargando datos de mercado...</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>🔧 Pruebas de API</h3>
+                <button class="btn" onclick="testHealth()">Probar Health Check</button>
+                <button class="btn" onclick="testRecommendations()">Probar Recomendaciones</button>
+                <button class="btn" onclick="testMarketData()">Probar Market Data</button>
+                <div id="test-results"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Mock data para demostración
+        const mockRecommendations = [
+            {
+                id: 1,
+                symbol: "BTCUSDT",
+                action: "BUY",
+                confidence: 0.85,
+                price_target: 72000,
+                reasoning: "Strong bullish momentum with RSI in favorable zone."
+            },
+            {
+                id: 2,
+                symbol: "ETHUSDT",
+                action: "SELL", 
+                confidence: 0.72,
+                price_target: 3100,
+                reasoning: "Bearish divergence detected."
+            },
+            {
+                id: 3,
+                symbol: "ADAUSDT",
+                action: "HOLD",
+                confidence: 0.60,
+                reasoning: "Sideways consolidation pattern."
+            }
+        ];
+
+        const mockMarketData = {
+            "BTCUSDT": { price: 67250.00, change_24h: 2.4 },
+            "ETHUSDT": { price: 3420.50, change_24h: -1.8 },
+            "ADAUSDT": { price: 0.485, change_24h: 0.8 }
+        };
+
+        // Función para hacer requests HTTP
+        async function makeRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error('Request failed:', error);
+                throw error;
+            }
+        }
+
+        // Función para mostrar estado del sistema
+        async function checkSystemStatus() {
+            const statusDiv = document.getElementById('system-status');
+            
+            try {
+                // Intentar conectar al backend
+                const health = await makeRequest('http://localhost:8000/health');
+                statusDiv.innerHTML = `
+                    <div style="color: #28a745;">
+                        ✅ Backend: Conectado<br>
+                        📊 Estado: ${health.status}<br>
+                        🔢 Versión: ${health.version}
+                    </div>
+                `;
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div style="color: #dc3545;">
+                        ❌ Backend: No disponible<br>
+                        🔧 Usando datos mock para demostración
+                    </div>
+                `;
+                // Cargar datos mock
+                loadMockData();
+            }
+        }
+
+        // Función para cargar datos mock
+        function loadMockData() {
+            loadRecommendations();
+            loadMarketData();
+        }
+
+        // Función para cargar recomendaciones
+        async function loadRecommendations() {
+            const recDiv = document.getElementById('recommendations');
+            
+            try {
+                const recommendations = await makeRequest('http://localhost:8000/api/v1/recommendations/');
+                displayRecommendations(recommendations);
+            } catch (error) {
+                // Usar datos mock
+                displayRecommendations(mockRecommendations);
+            }
+        }
+
+        // Función para mostrar recomendaciones
+        function displayRecommendations(recommendations) {
+            const recDiv = document.getElementById('recommendations');
+            
+            if (recommendations.length === 0) {
+                recDiv.innerHTML = '<p>No hay recomendaciones activas</p>';
+                return;
+            }
+            
+            recDiv.innerHTML = recommendations.map(rec => `
+                <div class="recommendation ${rec.action.toLowerCase()}">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <strong>${rec.symbol}</strong>
+                        <span class="status ${rec.action.toLowerCase()}">${rec.action}</span>
+                    </div>
+                    <div style="margin: 8px 0;">
+                        <small>Confianza: ${(rec.confidence * 100).toFixed(1)}%</small>
+                        ${rec.price_target ? `<br><small>Target: $${rec.price_target.toLocaleString()}</small>` : ''}
+                    </div>
+                    <div style="font-size: 14px; color: #666;">
+                        ${rec.reasoning}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Función para cargar datos de mercado
+        async function loadMarketData() {
+            const marketDiv = document.getElementById('market-data');
+            
+            try {
+                const data = await makeRequest('http://localhost:8000/api/v1/market-data/latest');
+                displayMarketData(data);
+            } catch (error) {
+                // Usar datos mock
+                const mockData = Object.entries(mockMarketData).map(([symbol, data]) => ({
+                    symbol,
+                    ...data
+                }));
+                displayMarketData(mockData);
+            }
+        }
+
+        // Función para mostrar datos de mercado
+        function displayMarketData(data) {
+            const marketDiv = document.getElementById('market-data');
+            
+            marketDiv.innerHTML = data.map(item => `
+                <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee;">
+                    <span><strong>${item.symbol}</strong></span>
+                    <span>$${item.price.toLocaleString()}</span>
+                    <span style="color: ${item.change_24h >= 0 ? '#28a745' : '#dc3545'};">
+                        ${item.change_24h >= 0 ? '+' : ''}${item.change_24h.toFixed(2)}%
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        // Función para generar nueva recomendación
+        async function generateRecommendation() {
+            const testDiv = document.getElementById('test-results');
+            testDiv.innerHTML = '<div class="loading">Generando recomendación...</div>';
+            
+            try {
+                const newRec = await makeRequest('http://localhost:8000/api/v1/recommendations/generate?symbol=BTCUSDT');
+                testDiv.innerHTML = `
+                    <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0;">
+                        ✅ Nueva recomendación generada:<br>
+                        <strong>${newRec.symbol}</strong> - ${newRec.action} (${(newRec.confidence * 100).toFixed(1)}%)
+                    </div>
+                `;
+                loadRecommendations(); // Recargar lista
+            } catch (error) {
+                testDiv.innerHTML = `
+                    <div class="error">
+                        ❌ Error generando recomendación: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Funciones de prueba
+        async function testHealth() {
+            const testDiv = document.getElementById('test-results');
+            testDiv.innerHTML = '<div class="loading">Probando health check...</div>';
+            
+            try {
+                const result = await makeRequest('http://localhost:8000/health');
+                testDiv.innerHTML = `
+                    <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0;">
+                        ✅ Health check exitoso:<br>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                testDiv.innerHTML = `
+                    <div class="error">
+                        ❌ Health check falló: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function testRecommendations() {
+            const testDiv = document.getElementById('test-results');
+            testDiv.innerHTML = '<div class="loading">Probando recomendaciones...</div>';
+            
+            try {
+                const result = await makeRequest('http://localhost:8000/api/v1/recommendations/');
+                testDiv.innerHTML = `
+                    <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0;">
+                        ✅ Recomendaciones obtenidas: ${result.length} items<br>
+                        <pre>${JSON.stringify(result.slice(0, 2), null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                testDiv.innerHTML = `
+                    <div class="error">
+                        ❌ Error obteniendo recomendaciones: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        async function testMarketData() {
+            const testDiv = document.getElementById('test-results');
+            testDiv.innerHTML = '<div class="loading">Probando market data...</div>';
+            
+            try {
+                const result = await makeRequest('http://localhost:8000/api/v1/market-data/latest');
+                testDiv.innerHTML = `
+                    <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin: 10px 0;">
+                        ✅ Market data obtenido: ${result.length} símbolos<br>
+                        <pre>${JSON.stringify(result, null, 2)}</pre>
+                    </div>
+                `;
+            } catch (error) {
+                testDiv.innerHTML = `
+                    <div class="error">
+                        ❌ Error obteniendo market data: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        // Inicializar la aplicación
+        document.addEventListener('DOMContentLoaded', function() {
+            checkSystemStatus();
+        });
+    </script>
+</body>
+</html>
+

@@ -398,3 +398,9 @@ Las mejoras implementadas resuelven completamente el problema de sincronización
 El Dashboard ahora se actualiza **automáticamente** al completar un backtest, sin necesidad de recargas manuales.
 
 
+
+
+
+
+
+

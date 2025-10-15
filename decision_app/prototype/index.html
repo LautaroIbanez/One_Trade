@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One Trade Decision App - Prototipo</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <span class="logo">🏠</span>
+                <span class="brand-text">One Trade Decision App</span>
+            </div>
+            <div class="nav-actions">
+                <button class="btn-icon" title="Notificaciones">🔔</button>
+                <button class="btn-icon" title="Usuario">👤</button>
+            </div>
+        </nav>
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <nav class="sidebar-nav">
+                <a href="#dashboard" class="nav-link active" data-page="dashboard">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-text">Dashboard</span>
+                </a>
+                <a href="#history" class="nav-link" data-page="history">
+                    <span class="nav-icon">📊</span>
+                    <span class="nav-text">Historial</span>
+                </a>
+                <a href="#backtests" class="nav-link" data-page="backtests">
+                    <span class="nav-icon">🧪</span>
+                    <span class="nav-text">Backtests</span>
+                </a>
+                <a href="#settings" class="nav-link" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-text">Configuración</span>
+                </a>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard Page -->
+            <div id="dashboard" class="page active">
+                <div class="page-header">
+                    <h1>📊 Decisión de Hoy - 15 Enero 2025</h1>
+                </div>
+
+                <!-- Decision Card -->
+                <div class="decision-card">
+                    <div class="decision-header">
+                        <h2>🎯 Recomendación: COMPRAR BTC/USDT</h2>
+                        <div class="price-info">
+                            <span class="price">$42,350.00</span>
+                            <span class="price-change positive">+2.3% (24h)</span>
+                        </div>
+                    </div>
+
+                    <!-- Signals Table -->
+                    <div class="signals-section">
+                        <h3>📋 Resumen de Señales</h3>
+                        <table class="signals-table">
+                            <thead>
+                                <tr>
+                                    <th>Estrategia</th>
+                                    <th>Señal</th>
+                                    <th>Peso</th>
+                                    <th>Confianza</th>
+                                    <th>Contribución</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>RSI Oversold</td>
+                                    <td><span class="badge badge-buy">BUY</span></td>
+                                    <td>25%</td>
+                                    <td>85%</td>
+                                    <td class="positive">+0.21</td>
+                                </tr>
+                                <tr>
+                                    <td>MACD Bullish</td>
+                                    <td><span class="badge badge-buy">BUY</span></td>
+                                    <td>20%</td>
+                                    <td>78%</td>
+                                    <td class="positive">+0.16</td>
+                                </tr>
+                                <tr>
+                                    <td>Volume Spike</td>
+                                    <td><span class="badge badge-buy">BUY</span></td>
+                                    <td>15%</td>
+                                    <td>72%</td>
+                                    <td class="positive">+0.11</td>
+                                </tr>
+                                <tr>
+                                    <td>Support Level</td>
+                                    <td><span class="badge badge-buy">BUY</span></td>
+                                    <td>20%</td>
+                                    <td>80%</td>
+                                    <td class="positive">+0.16</td>
+                                </tr>
+                                <tr>
+                                    <td>Trend Following</td>
+                                    <td><span class="badge badge-hold">HOLD</span></td>
+                                    <td>20%</td>
+                                    <td>65%</td>
+                                    <td class="neutral">+0.00</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="decision-summary">
+                        <div class="summary-item">
+                            <span class="summary-label">Puntuación Final:</span>
+                            <span class="summary-value positive">+0.64 (BUY)</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label">Confianza:</span>
+                            <span class="summary-value">76%</span>
+                        </div>
+                    </div>
+
+                    <div class="decision-actions">
+                        <button class="btn btn-primary" onclick="showPage('detail')">📈 Ver Detalles</button>
+                        <button class="btn btn-secondary">📊 Historial</button>
+                        <button class="btn btn-secondary">⚙️ Configurar</button>
+                    </div>
+                </div>
+
+                <!-- Chart Section -->
+                <div class="chart-section">
+                    <h3>📈 Gráfico de Precio</h3>
+                    <div class="chart-container">
+                        <div class="chart-placeholder">
+                            <div class="chart-line">
+                                <div class="chart-point" style="left: 10%; top: 60%;"></div>
+                                <div class="chart-point" style="left: 30%; top: 40%;"></div>
+                                <div class="chart-point" style="left: 50%; top: 30%;"></div>
+                                <div class="chart-point" style="left: 70%; top: 35%;"></div>
+                                <div class="chart-point" style="left: 90%; top: 25%;"></div>
+                            </div>
+                            <div class="chart-labels">
+                                <span>10:00</span>
+                                <span>12:00</span>
+                                <span>14:00</span>
+                                <span>16:00</span>
+                                <span>18:00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metrics Section -->
+                <div class="metrics-section">
+                    <h3>📊 Métricas Rápidas</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value">+5.2%</div>
+                            <div class="metric-label">Performance 7d</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">78%</div>
+                            <div class="metric-label">Accuracy</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">65%</div>
+                            <div class="metric-label">Win Rate</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">+$1,250</div>
+                            <div class="metric-label">Profit/Loss</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- History Page -->
+            <div id="history" class="page">
+                <div class="page-header">
+                    <h1>📊 Historial de Decisiones</h1>
+                    <div class="page-filters">
+                        <select class="filter-select">
+                            <option>Últimos 30 días</option>
+                            <option>Últimos 7 días</option>
+                            <option>Últimos 3 meses</option>
+                        </select>
+                        <select class="filter-select">
+                            <option>Todas las monedas</option>
+                            <option>BTC/USDT</option>
+                            <option>ETH/USDT</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="history-table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Par</th>
+                                <th>Decisión</th>
+                                <th>Precio</th>
+                                <th>Resultado</th>
+                                <th>P&L</th>
+                                <th>Acc</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>15 Ene 2025</td>
+                                <td>BTC/USD</td>
+                                <td><span class="badge badge-buy">BUY</span></td>
+                                <td>$42,350</td>
+                                <td class="positive">+2.1%</td>
+                                <td class="positive">+$890</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                            <tr>
+                                <td>14 Ene 2025</td>
+                                <td>ETH/USD</td>
+                                <td><span class="badge badge-sell">SELL</span></td>
+                                <td>$2,650</td>
+                                <td class="negative">-1.8%</td>
+                                <td class="positive">+$450</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                            <tr>
+                                <td>13 Ene 2025</td>
+                                <td>BTC/USD</td>
+                                <td><span class="badge badge-hold">HOLD</span></td>
+                                <td>$41,200</td>
+                                <td class="neutral">+0.5%</td>
+                                <td>$0</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="history-stats">
+                    <div class="stats-grid">
+                        <div class="stat-item">
+                            <span class="stat-label">Total Trades:</span>
+                            <span class="stat-value">45</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Accuracy:</span>
+                            <span class="stat-value">78%</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Total P&L:</span>
+                            <span class="stat-value positive">+$3,240</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-label">Win Rate:</span>
+                            <span class="stat-value">65%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Backtests Page -->
+            <div id="backtests" class="page">
+                <div class="page-header">
+                    <h1>📊 Backtests y Análisis</h1>
+                    <button class="btn btn-primary">🔄 Nuevo Backtest</button>
+                </div>
+
+                <div class="backtest-comparison">
+                    <h3>📈 Performance Comparativo</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Estrategia</th>
+                                <th>Trades</th>
+                                <th>Win Rate</th>
+                                <th>Avg P&L</th>
+                                <th>Sharpe</th>
+                                <th>Max DD</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>RSI Oversold</td>
+                                <td>45</td>
+                                <td>73%</td>
+                                <td class="positive">+$89</td>
+                                <td>1.85</td>
+                                <td class="negative">-12%</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                            <tr>
+                                <td>MACD Bullish</td>
+                                <td>38</td>
+                                <td>68%</td>
+                                <td class="positive">+$76</td>
+                                <td>1.62</td>
+                                <td class="negative">-15%</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                            <tr>
+                                <td>COMBINADA</td>
+                                <td>224</td>
+                                <td>71%</td>
+                                <td class="positive">+$81</td>
+                                <td>1.72</td>
+                                <td class="negative">-11%</td>
+                                <td><span class="status-success">✅</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="recent-backtests">
+                    <h3>📋 Backtests Recientes</h3>
+                    <div class="backtest-list">
+                        <div class="backtest-item">
+                            <div class="backtest-header">
+                                <h4>15 Ene 2025 - BTC/USDT - 6 meses</h4>
+                                <span class="status-success">✅ Completado</span>
+                            </div>
+                            <div class="backtest-metrics">
+                                <span>Duración: 2.3s</span>
+                                <span>Trades: 224</span>
+                                <span>P&L: +$3,240</span>
+                                <span>Win Rate: 71%</span>
+                            </div>
+                            <div class="backtest-actions">
+                                <button class="btn btn-sm btn-secondary">📊 Ver Detalles</button>
+                                <button class="btn btn-sm btn-secondary">📈 Gráficos</button>
+                                <button class="btn btn-sm btn-secondary">💾 Exportar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="settings" class="page">
+                <div class="page-header">
+                    <h1>⚙️ Configuración del Sistema</h1>
+                </div>
+
+                <div class="settings-sections">
+                    <div class="settings-section">
+                        <h3>💰 Configuración de Trading</h3>
+                        <div class="form-group">
+                            <label>Capital Inicial:</label>
+                            <input type="text" value="$10,000" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>Tamaño de Posición:</label>
+                            <input type="text" value="2%" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label>Stop Loss:</label>
+                            <input type="text" value="3%" class="form-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🔔 Notificaciones</h3>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" checked> Email
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" checked> Push
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox"> Webhook
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>🔐 Seguridad</h3>
+                        <div class="form-group">
+                            <label>2FA:</label>
+                            <span class="status-success">✅ Activo</span>
+                        </div>
+                        <div class="form-group">
+                            <label>Último Login:</label>
+                            <span>15 Ene 2025, 09:15 AM</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-actions">
+                    <button class="btn btn-primary">💾 Guardar Cambios</button>
+                    <button class="btn btn-secondary">🔄 Resetear</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
+

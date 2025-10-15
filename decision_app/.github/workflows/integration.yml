@@ -1,0 +1,68 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  integration:
+    name: Full Stack Integration Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Start services with Docker Compose
+      run: |
+        docker-compose up -d
+        docker-compose ps
+    
+    - name: Wait for services to be healthy
+      run: |
+        timeout 60 bash -c 'until docker-compose exec -T postgres pg_isready -U onetrade; do sleep 2; done'
+        timeout 60 bash -c 'until docker-compose exec -T redis redis-cli ping; do sleep 2; done'
+        timeout 60 bash -c 'until docker-compose exec -T rabbitmq rabbitmq-diagnostics ping; do sleep 2; done'
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install backend dependencies
+      run: |
+        cd backend
+        pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run database migrations
+      env:
+        DATABASE_URL: postgresql+asyncpg://onetrade:onetrade_dev@localhost:5432/onetrade
+      run: |
+        cd backend
+        alembic upgrade head
+    
+    - name: Run integration tests
+      env:
+        DATABASE_URL: postgresql+asyncpg://onetrade:onetrade_dev@localhost:5432/onetrade
+        REDIS_URL: redis://localhost:6379/0
+        RABBITMQ_URL: amqp://onetrade:onetrade_dev@localhost:5672/
+        SECRET_KEY: integration-test-secret-key
+      run: |
+        cd backend
+        pytest tests/ -v -m integration || true
+    
+    - name: Show service logs on failure
+      if: failure()
+      run: |
+        docker-compose logs
+    
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose down -v
+

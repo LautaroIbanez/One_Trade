@@ -1,0 +1,137 @@
+# Development-specific Docker Compose overrides
+version: '3.8'
+
+services:
+  # Database with exposed port for direct access
+  postgres:
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Mount local data for development
+      - ./dev-data:/dev-data
+
+  # Redis with exposed port
+  redis:
+    ports:
+      - "6379:6379"
+
+  # RabbitMQ with management UI
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  # PgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: onetrade-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@onetrade.local
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - onetrade-network
+
+  # Backend in development mode
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onetrade-backend-dev
+    command: uvicorn main:app --reload --host 0.0.0.0 --port 8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://onetrade:${POSTGRES_PASSWORD:-onetrade_dev}@postgres:5432/onetrade
+      - REDIS_URL=redis://redis:6379/0
+      - RABBITMQ_URL=amqp://onetrade:${RABBITMQ_PASSWORD:-onetrade_dev}@rabbitmq:5672/
+      - ENVIRONMENT=development
+      - LOG_LEVEL=DEBUG
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - onetrade-network
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onetrade-celery-worker
+    command: celery -A app.core.celery_app worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://onetrade:${POSTGRES_PASSWORD:-onetrade_dev}@postgres:5432/onetrade
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - onetrade-network
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onetrade-celery-beat
+    command: celery -A app.core.celery_app beat --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://onetrade:${POSTGRES_PASSWORD:-onetrade_dev}@postgres:5432/onetrade
+      - REDIS_URL=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+    networks:
+      - onetrade-network
+
+  # Flower (Celery monitoring)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: onetrade-flower
+    command: celery -A app.core.celery_app flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/1
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - redis
+      - celery-worker
+    networks:
+      - onetrade-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  pgadmin_data:
+
+networks:
+  onetrade-network:
+    driver: bridge

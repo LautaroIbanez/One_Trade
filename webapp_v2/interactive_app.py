@@ -45,6 +45,9 @@ engine = BacktestEngine(config)
 # Thread pool for async operations
 executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="webapp_worker")
 
+# Configuration
+BACKTEST_TIMEOUT_MINUTES = 15
+
 # Cache invalidation timestamp
 _cache_timestamp = datetime.now().timestamp()
 
@@ -174,33 +177,67 @@ def log_backtest_performance(symbol: str, strategy: str, start_date: str, end_da
         logger.error(f"Failed to log performance metrics: {e}")
 
 
+def save_session_log(timestamp: str, symbol: str, strategy: str, start_date: str, end_date: str, log_buffer: List[Dict], result: Dict) -> str:
+    """Save session log to JSON file. Returns: Path to saved log file."""
+    try:
+        logs_dir = Path("logs/sessions")
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        session_data = {"timestamp": timestamp, "symbol": symbol, "strategy": strategy, "start_date": start_date, "end_date": end_date, "logs": log_buffer, "result": {"success": result.get("success", False), "error": result.get("error"), "error_code": result.get("error_code"), "elapsed_time": result.get("elapsed_time", 0)}}
+        log_file = logs_dir / f"session_{timestamp.replace('.', '_')}.json"
+        with open(log_file, 'w') as f:
+            json.dump(session_data, f, indent=2)
+        logger.info(f"Session log saved: {log_file}")
+        return str(log_file)
+    except Exception as e:
+        logger.error(f"Failed to save session log: {e}")
+        return ""
+
+
 def run_backtest_async(symbol: str, strategy: str, start_date: str, end_date: str, timestamp: str) -> Dict:
     """Run backtest in background thread."""
     logger.info(f"Starting backtest: symbol={symbol}, strategy={strategy}, start={start_date}, end={end_date}")
+    log_buffer = []
     try:
         progress_queue = queue.Queue()
-        log_buffer = []
         with _futures_lock:
             _progress_queues[timestamp] = progress_queue
             _log_buffers[timestamp] = log_buffer
         def progress_callback(data: Dict):
             progress_queue.put(data)
-            log_buffer.append({"timestamp": datetime.now().isoformat(), "message": data.get("message", ""), "stage": data.get("stage", "")})
-            if len(log_buffer) > 50:
+            log_entry = {"timestamp": datetime.now().isoformat(), "message": data.get("message", ""), "stage": data.get("stage", "")}
+            log_buffer.append(log_entry)
+            if len(log_buffer) > 100:
                 log_buffer.pop(0)
             logger.info(f"Progress: {data.get('message', '')}")
         engine_temp = get_engine_from_pool(strategy)
         results = engine_temp.run_backtest(symbol, start_date, end_date, progress_callback=progress_callback)
+        if "error" in results:
+            error_code = results.get("error_code", "UNKNOWN")
+            error_msg = results.get("error")
+            elapsed_time = results.get("elapsed_time", 0)
+            logger.error(f"Backtest returned error: {error_code} - {error_msg}")
+            log_backtest_performance(symbol, strategy, start_date, end_date, elapsed_time, 0, False, error_msg)
+            error_titles = {"NO_DATA": "Datos insuficientes", "METRICS_NONE": "Error al calcular métricas", "INVALID_METRICS": "Métricas inválidas", "EXCEPTION": "Error crítico"}
+            result_dict = {"success": False, "error": error_msg, "error_code": error_code, "error_title": error_titles.get(error_code, "Error desconocido"), "elapsed_time": elapsed_time}
+            log_file = save_session_log(timestamp, symbol, strategy, start_date, end_date, log_buffer, result_dict)
+            result_dict["log_file"] = log_file
+            return result_dict
         elapsed_time = results.get('elapsed_time', 0)
         total_trades = results['metrics'].total_trades
         logger.info(f"Backtest completed successfully: {total_trades} trades in {elapsed_time:.2f}s")
         log_backtest_performance(symbol, strategy, start_date, end_date, elapsed_time, total_trades, True)
         invalidate_cache()
-        return {"success": True, "results": results}
+        result_dict = {"success": True, "results": results}
+        log_file = save_session_log(timestamp, symbol, strategy, start_date, end_date, log_buffer, result_dict)
+        result_dict["log_file"] = log_file
+        return result_dict
     except Exception as e:
-        logger.error(f"Backtest failed: {e}", exc_info=True)
-        log_backtest_performance(symbol, strategy, start_date, end_date, 0, 0, False, str(e))
-        return {"success": False, "error": str(e)}
+        logger.error(f"Backtest async wrapper failed: {e}", exc_info=True)
+        log_backtest_performance(symbol, strategy, start_date, end_date, 0, 0, False, f"Async wrapper exception: {str(e)}")
+        result_dict = {"success": False, "error": str(e), "error_code": "ASYNC_EXCEPTION", "error_title": "Error en ejecución asíncrona"}
+        log_file = save_session_log(timestamp, symbol, strategy, start_date, end_date, log_buffer, result_dict)
+        result_dict["log_file"] = log_file
+        return result_dict
     finally:
         with _futures_lock:
             if timestamp in _progress_queues:
@@ -269,6 +306,8 @@ app.layout = dbc.Container([
         "completed": False,
         "timestamp": None
     }),
+    dcc.Store(id="session-log-path", data={"log_file": None}),
+    dcc.Download(id="download-session-log"),
     
     # Intervals for polling
     dcc.Interval(id="status-interval", interval=1000, n_intervals=0),
@@ -386,7 +425,8 @@ def create_backtest_content():
                         html.H5("📊 Estado del Backtest", className="card-title"),
                         html.Div(id="backtest-progress"),
                         html.Hr(),
-                        dbc.Button([html.I(className="fas fa-times-circle me-2"), "Cancelar Backtest"], id="cancel-backtest-btn", color="danger", size="sm", className="w-100", disabled=True)
+                        dbc.Button([html.I(className="fas fa-times-circle me-2"), "Cancelar Backtest"], id="cancel-backtest-btn", color="danger", size="sm", className="w-100 mb-2", disabled=True),
+                        dbc.Button([html.I(className="fas fa-download me-2"), "Descargar Log"], id="download-log-btn", color="info", size="sm", className="w-100", disabled=True, style={"display": "none"})
                     ])
                 ], className="shadow")
             ], width=4)
@@ -551,7 +591,10 @@ def render_data_content(active_tab):
      Output("backtest-progress", "children"),
      Output("backtest-results", "children"),
      Output("backtest-completion-event", "data"),
-     Output("cancel-backtest-btn", "disabled")],
+     Output("cancel-backtest-btn", "disabled"),
+     Output("download-log-btn", "disabled"),
+     Output("download-log-btn", "style"),
+     Output("session-log-path", "data")],
     [Input("run-backtest-btn", "n_clicks"),
      Input("status-interval", "n_intervals"),
      Input("cancel-backtest-btn", "n_clicks")],
@@ -566,7 +609,7 @@ def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_d
     ctx = callback_context
     if not ctx.triggered:
         initial_state = {"running": False, "result": None, "timestamp": None}
-        return initial_state, dbc.Alert("Listo para ejecutar backtest", color="info"), "", {"completed": False, "timestamp": None}, True
+        return initial_state, dbc.Alert("Listo para ejecutar backtest", color="info"), "", {"completed": False, "timestamp": None}, True, True, {"display": "none"}, {"log_file": None}
     trigger_id = ctx.triggered[0]["prop_id"].split(".")[0]
     if trigger_id == "cancel-backtest-btn" and cancel_clicks and state.get("running"):
         logger.info("Backtest cancelation requested")
@@ -579,20 +622,35 @@ def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_d
                 logger.info(f"Backtest future cancelled: {timestamp}")
         cancelled_state = {"running": False, "result": None, "timestamp": None}
         cancelled_alert = dbc.Alert([html.I(className="fas fa-exclamation-circle me-2"), "Backtest cancelado por el usuario"], color="warning")
-        return cancelled_state, cancelled_alert, "", {"completed": False, "timestamp": None}, True
+        return cancelled_state, cancelled_alert, "", {"completed": False, "timestamp": None}, True, True, {"display": "none"}, {"log_file": None}
     if trigger_id == "run-backtest-btn" and n_clicks:
         logger.info(f"Backtest button clicked: {symbol}, {strategy}, {start_date} to {end_date}")
         timestamp = str(datetime.now().timestamp())
+        start_time = datetime.now()
         future = executor.submit(run_backtest_async, symbol, strategy, start_date, end_date, timestamp)
         progress = dbc.Alert([dbc.Spinner(size="sm"), f" Ejecutando backtest para {symbol} con estrategia {strategy}..."], color="info")
-        new_state = {"running": True, "result": None, "timestamp": datetime.now().timestamp(), "future": timestamp}
+        new_state = {"running": True, "result": None, "timestamp": datetime.now().timestamp(), "future": timestamp, "start_time": start_time.isoformat()}
         with _futures_lock:
             _backtest_futures[timestamp] = future
-        return new_state, progress, "", {"completed": False, "timestamp": None}, False
+        return new_state, progress, "", {"completed": False, "timestamp": None}, False, True, {"display": "none"}, {"log_file": None}
     
     elif trigger_id == "status-interval" and state.get("running"):
         timestamp = state.get("future")
+        start_time_str = state.get("start_time")
         logger.debug(f"Checking backtest status - timestamp: {timestamp}, running: {state.get('running')}")
+        if start_time_str:
+            start_time = datetime.fromisoformat(start_time_str)
+            elapsed_minutes = (datetime.now() - start_time).total_seconds() / 60
+            if elapsed_minutes > BACKTEST_TIMEOUT_MINUTES:
+                logger.warning(f"Backtest timeout exceeded: {elapsed_minutes:.1f} minutes")
+                with _futures_lock:
+                    future = _backtest_futures.get(timestamp)
+                if future:
+                    future.cancel()
+                    logger.info(f"Backtest cancelled due to timeout")
+                timeout_state = {"running": False, "result": None, "timestamp": None}
+                timeout_alert = dbc.Alert([html.H5([html.I(className="fas fa-clock me-2"), "Timeout"], className="alert-heading"), html.P(f"El backtest excedió el tiempo máximo de {BACKTEST_TIMEOUT_MINUTES} minutos y fue cancelado automáticamente."), html.Hr(), html.Small(f"Tiempo transcurrido: {elapsed_minutes:.1f} minutos", className="text-muted")], color="warning")
+                return timeout_state, timeout_alert, "", {"completed": False, "timestamp": None}, True, True, {"display": "none"}, {"log_file": None}
         if timestamp:
             with _futures_lock:
                 future = _backtest_futures.get(timestamp)
@@ -615,7 +673,7 @@ def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_d
                         recent_logs = log_buffer[-5:]
                         log_items = [html.Li([html.Small(f"{log['timestamp'].split('T')[1].split('.')[0]}: ", className="text-muted"), html.Span(log['message'])], className="list-group-item list-group-item-action py-1") for log in recent_logs]
                         progress_content = html.Div([progress_content, html.Hr(), html.H6("Log reciente:", className="mt-3"), dbc.ListGroup(log_items, className="small")])
-                    return dash.no_update, progress_content, dash.no_update, dash.no_update, False
+                    return dash.no_update, progress_content, dash.no_update, dash.no_update, False, dash.no_update, dash.no_update, dash.no_update
             if future and future.done():
                 logger.info(f"Backtest future completed for timestamp: {timestamp}")
                 result = future.result()
@@ -624,6 +682,9 @@ def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_d
                         del _backtest_futures[timestamp]
                 
                 logger.info(f"Backtest completed: success={result.get('success')}")
+                log_file = result.get('log_file')
+                log_path_data = {"log_file": log_file} if log_file else {"log_file": None}
+                show_download = {"display": "block"} if log_file else {"display": "none"}
                 if result['success']:
                     metrics = result['results']['metrics']
                     elapsed_time = result['results'].get('elapsed_time', 0)
@@ -631,12 +692,37 @@ def run_backtest(n_clicks, n_intervals, cancel_clicks, symbol, strategy, start_d
                     results_content = dbc.Card([dbc.CardBody([html.H5("📊 Resultados del Backtest", className="card-title"), dbc.Row([dbc.Col([html.H6("Total Return"), html.H4(f"${metrics.total_return:.2f}", className="text-success" if metrics.total_return >= 0 else "text-danger")], width=3), dbc.Col([html.H6("Win Rate"), html.H4(f"{metrics.win_rate:.1f}%", className="text-info")], width=3), dbc.Col([html.H6("Total Trades"), html.H4(f"{metrics.total_trades}", className="text-primary")], width=3), dbc.Col([html.H6("Profit Factor"), html.H4(f"{metrics.profit_factor:.2f}", className="text-warning")], width=3)]), html.Hr(), html.Div([html.Small(f"Duración del backtest: {elapsed_time:.2f} segundos", className="text-muted")])])])
                     completion_event = {"completed": True, "timestamp": datetime.now().timestamp()}
                     completed_state = {"running": False, "result": result, "timestamp": None}
-                    return completed_state, success_alert, results_content, completion_event, True
+                    return completed_state, success_alert, results_content, completion_event, True, False, show_download, log_path_data
                 else:
-                    error_alert = dbc.Alert([html.I(className="fas fa-exclamation-triangle me-2"), f"Error: {result['error']}"], color="danger")
+                    error_title = result.get('error_title', 'Error')
+                    error_code = result.get('error_code', 'UNKNOWN')
+                    error_msg = result.get('error', 'Error desconocido')
+                    error_alert = dbc.Alert([html.H5([html.I(className="fas fa-exclamation-triangle me-2"), error_title], className="alert-heading"), html.P(error_msg), html.Hr(), html.Small(f"Código de error: {error_code}", className="text-muted")], color="danger")
                     completed_state = {"running": False, "result": result, "timestamp": None}
-                    return completed_state, error_alert, "", {"completed": False, "timestamp": None}, True
-    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+                    return completed_state, error_alert, "", {"completed": False, "timestamp": None}, True, False, show_download, log_path_data
+    return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+
+@app.callback(
+    Output("download-session-log", "data"),
+    [Input("download-log-btn", "n_clicks")],
+    [State("session-log-path", "data")],
+    prevent_initial_call=True
+)
+def download_session_log(n_clicks, log_path_data):
+    """Download session log file."""
+    if not n_clicks or not log_path_data or not log_path_data.get("log_file"):
+        raise PreventUpdate
+    log_file = log_path_data["log_file"]
+    try:
+        if Path(log_file).exists():
+            return dcc.send_file(log_file)
+        else:
+            logger.error(f"Log file not found: {log_file}")
+            raise PreventUpdate
+    except Exception as e:
+        logger.error(f"Error downloading log file: {e}")
+        raise PreventUpdate
 
 
 @app.callback(
