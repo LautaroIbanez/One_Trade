@@ -1,0 +1,24 @@
+# One Trade Decision App - Backend Requirements
+# Install with: pip install -r requirements.txt
+
+# FastAPI framework
+fastapi==0.104.1
+
+# ASGI server
+uvicorn[standard]==0.24.0
+
+# Data validation
+pydantic==2.5.0
+
+# HTTP requests
+requests==2.31.0
+
+# Form data parsing
+python-multipart==0.0.6
+
+# Optional: Development tools
+# pytest==7.4.3
+# httpx==0.25.1
+# black==23.11.0
+# flake8==6.1.0
+

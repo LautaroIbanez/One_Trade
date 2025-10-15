@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>One Trade Decision App - Demo</title>
+    <title>One Trade Decision App</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <script>
@@ -90,6 +90,20 @@
                 <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
                 <p class="text-gray-600 mb-8">Overview of your trading recommendations and performance</p>
 
+                <!-- Backend Status -->
+                <div class="bg-white p-6 rounded-lg shadow-sm border mb-8">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-semibold text-gray-900">Backend Status</h2>
+                        <button onclick="checkBackend()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                            <i class="fas fa-sync-alt mr-2"></i>
+                            Check Backend
+                        </button>
+                    </div>
+                    <div id="backend-status" class="mt-4">
+                        <p class="text-gray-600">Click "Check Backend" to verify connection</p>
+                    </div>
+                </div>
+
                 <!-- Real-time Stats -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div class="bg-white p-6 rounded-lg shadow-sm border">
@@ -146,85 +160,15 @@
                     <div class="px-6 py-4 border-b">
                         <div class="flex items-center justify-between">
                             <h2 class="text-lg font-semibold text-gray-900">Enhanced Recommendations</h2>
-                            <button class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                            <button onclick="loadRecommendations()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
                                 <i class="fas fa-sync-alt mr-2"></i>
-                                Refresh
+                                Load Recommendations
                             </button>
                         </div>
                     </div>
                     
-                    <div class="p-6">
-                        <div class="space-y-4">
-                            <!-- BTCUSDT -->
-                            <div class="border rounded-lg p-4">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center">
-                                        <div class="w-3 h-3 bg-blue-600 rounded-full mr-3"></div>
-                                        <span class="font-semibold text-lg">BTCUSDT</span>
-                                        <span class="ml-2 text-sm text-gray-500">$45,000</span>
-                                    </div>
-                                    <div class="flex items-center space-x-4">
-                                        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
-                                            BUY
-                                        </span>
-                                        <span class="text-sm text-gray-600">Confidence: 75%</span>
-                                        <span class="text-xs text-gray-500">RSI + MACD Strategy</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ETHUSDT -->
-                            <div class="border rounded-lg p-4">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center">
-                                        <div class="w-3 h-3 bg-gray-400 rounded-full mr-3"></div>
-                                        <span class="font-semibold text-lg">ETHUSDT</span>
-                                        <span class="ml-2 text-sm text-gray-500">$3,200</span>
-                                    </div>
-                                    <div class="flex items-center space-x-4">
-                                        <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-medium">
-                                            HOLD
-                                        </span>
-                                        <span class="text-sm text-gray-600">Confidence: 65%</span>
-                                        <span class="text-xs text-gray-500">MACD Strategy</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- ADAUSDT -->
-                            <div class="border rounded-lg p-4">
-                                <div class="flex items-center justify-between">
-                                    <div class="flex items-center">
-                                        <div class="w-3 h-3 bg-red-600 rounded-full mr-3"></div>
-                                        <span class="font-semibold text-lg">ADAUSDT</span>
-                                        <span class="ml-2 text-sm text-gray-500">$0.45</span>
-                                    </div>
-                                    <div class="flex items-center space-x-4">
-                                        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
-                                            SELL
-                                        </span>
-                                        <span class="text-sm text-gray-600">Confidence: 55%</span>
-                                        <span class="text-xs text-gray-500">Bollinger Bands Strategy</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Performance Chart -->
-                <div class="bg-white rounded-lg shadow-sm border">
-                    <div class="px-6 py-4 border-b">
-                        <h2 class="text-lg font-semibold text-gray-900">Performance Overview</h2>
-                    </div>
-                    <div class="p-6">
-                        <div class="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
-                            <div class="text-center">
-                                <i class="fas fa-chart-area text-4xl text-gray-400 mb-4"></i>
-                                <p class="text-gray-500">Performance chart would be displayed here</p>
-                                <p class="text-sm text-gray-400 mt-2">Mock Mode: Data simulated for demonstration</p>
-                            </div>
-                        </div>
+                    <div id="recommendations-content" class="p-6">
+                        <p class="text-gray-600">Click "Load Recommendations" to fetch data from backend</p>
                     </div>
                 </div>
 
@@ -233,10 +177,10 @@
                     <div class="flex items-center">
                         <i class="fas fa-info-circle text-blue-600 mr-3"></i>
                         <div>
-                            <h3 class="text-sm font-medium text-blue-800">Demo Mode Active</h3>
+                            <h3 class="text-sm font-medium text-blue-800">Frontend Simplificado</h3>
                             <p class="text-sm text-blue-700 mt-1">
-                                This is a demonstration of the One Trade Decision App interface. 
-                                All data shown is simulated. The actual application will connect to real trading data and APIs.
+                                Esta es una versión HTML pura que funciona sin dependencias complejas. 
+                                Conecta directamente con el backend en http://localhost:8000
                             </p>
                         </div>
                     </div>
@@ -246,40 +190,104 @@
     </div>
 
     <script>
-        // Simple demo interactions
-        document.addEventListener('DOMContentLoaded', function() {
-            // Update timestamp
-            function updateTimestamp() {
-                const now = new Date();
-                const timeString = now.toLocaleTimeString();
-                console.log('Demo updated at:', timeString);
+        // Función para verificar el backend
+        async function checkBackend() {
+            const statusDiv = document.getElementById('backend-status');
+            statusDiv.innerHTML = '<p class="text-yellow-600"><i class="fas fa-spinner fa-spin mr-2"></i>Checking backend...</p>';
+            
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                const data = await response.json();
+                
+                if (data.status === 'healthy') {
+                    statusDiv.innerHTML = `
+                        <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <div class="flex items-center">
+                                <i class="fas fa-check-circle text-green-600 mr-2"></i>
+                                <span class="text-green-800 font-medium">Backend is healthy!</span>
+                            </div>
+                            <p class="text-green-700 text-sm mt-2">CORS enabled: ${data.cors_enabled}</p>
+                            <p class="text-green-700 text-sm">Timestamp: ${data.timestamp}</p>
+                        </div>
+                    `;
+                } else {
+                    statusDiv.innerHTML = '<p class="text-red-600">Backend responded but status is not healthy</p>';
+                }
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <div class="flex items-center">
+                            <i class="fas fa-exclamation-triangle text-red-600 mr-2"></i>
+                            <span class="text-red-800 font-medium">Backend connection failed</span>
+                        </div>
+                        <p class="text-red-700 text-sm mt-2">Error: ${error.message}</p>
+                        <p class="text-red-700 text-sm">Make sure the backend is running on http://localhost:8000</p>
+                    </div>
+                `;
             }
+        }
 
-            // Simulate real-time updates
-            setInterval(updateTimestamp, 5000);
+        // Función para cargar recomendaciones
+        async function loadRecommendations() {
+            const contentDiv = document.getElementById('recommendations-content');
+            contentDiv.innerHTML = '<p class="text-yellow-600"><i class="fas fa-spinner fa-spin mr-2"></i>Loading recommendations...</p>';
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/v1/enhanced-recommendations/supported-symbols');
+                const symbols = await response.json();
+                
+                let recommendationsHtml = '<div class="space-y-4">';
+                
+                // Cargar recomendaciones para los primeros 3 símbolos
+                for (let i = 0; i < Math.min(3, symbols.length); i++) {
+                    const symbol = symbols[i];
+                    try {
+                        const recResponse = await fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`);
+                        const rec = await recResponse.json();
+                        
+                        const color = rec.recommendation === 'BUY' ? 'green' : rec.recommendation === 'SELL' ? 'red' : 'yellow';
+                        
+                        recommendationsHtml += `
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <span class="font-semibold text-lg">${rec.symbol}</span>
+                                        <span class="ml-2 text-sm text-gray-500">${rec.details?.strategy || 'N/A'}</span>
+                                    </div>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="bg-${color}-100 text-${color}-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            ${rec.recommendation}
+                                        </span>
+                                        <span class="text-sm text-gray-600">Confidence: ${(rec.confidence * 100).toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                    } catch (error) {
+                        recommendationsHtml += `
+                            <div class="border rounded-lg p-4 bg-red-50">
+                                <p class="text-red-600">Error loading ${symbol}: ${error.message}</p>
+                            </div>
+                        `;
+                    }
+                }
+                
+                recommendationsHtml += '</div>';
+                contentDiv.innerHTML = recommendationsHtml;
+                
+            } catch (error) {
+                contentDiv.innerHTML = `
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+                        <p class="text-red-600">Error: ${error.message}</p>
+                        <p class="text-red-600 text-sm mt-2">Make sure the backend is running</p>
+                    </div>
+                `;
+            }
+        }
 
-            // Add click handlers for demo
-            document.querySelectorAll('nav a').forEach(link => {
-                link.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    // Remove active class from all links
-                    document.querySelectorAll('nav a').forEach(l => {
-                        l.classList.remove('text-white', 'bg-blue-600');
-                        l.classList.add('text-gray-700', 'hover:bg-gray-100');
-                    });
-                    // Add active class to clicked link
-                    this.classList.remove('text-gray-700', 'hover:bg-gray-100');
-                    this.classList.add('text-white', 'bg-blue-600');
-                });
-            });
-
-            // Refresh button
-            document.querySelector('button').addEventListener('click', function() {
-                this.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Refreshing...';
-                setTimeout(() => {
-                    this.innerHTML = '<i class="fas fa-sync-alt mr-2"></i>Refresh';
-                }, 2000);
-            });
+        // Verificar backend al cargar la página
+        window.addEventListener('load', function() {
+            setTimeout(checkBackend, 1000);
         });
     </script>
 </body>

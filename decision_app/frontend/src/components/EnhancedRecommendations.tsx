@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
+import { useMockData } from '../hooks/useMockData';
 
 interface StrategySignal {
   strategy: string;
@@ -50,6 +51,7 @@ interface EnhancedRecommendation {
 }
 
 const EnhancedRecommendations: React.FC = () => {
+  const { getRecommendation, getSupportedSymbols, MOCK_MODE } = useMockData();
   const [recommendations, setRecommendations] = useState<EnhancedRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,14 +61,62 @@ const EnhancedRecommendations: React.FC = () => {
     setError(null);
     
     try {
-      const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT'];
-      const promises = symbols.map(symbol => 
-        fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`)
-          .then(res => res.json())
-      );
-      
-      const results = await Promise.all(promises);
-      setRecommendations(results);
+      if (MOCK_MODE) {
+        // Use mock data
+        const symbols = await getSupportedSymbols();
+        const mockRecommendations = [];
+        
+        for (const symbol of symbols.slice(0, 3)) { // Show first 3 symbols
+          const mockRec = await getRecommendation(symbol, '1d', 30);
+          mockRecommendations.push({
+            symbol: mockRec.symbol,
+            recommendation: mockRec.recommendation,
+            confidence: mockRec.confidence,
+            timestamp: mockRec.timestamp,
+            strategy_signals: [
+              {
+                strategy: mockRec.details.strategy,
+                signal: mockRec.recommendation,
+                confidence: mockRec.confidence,
+                weight: 1.0,
+                reasoning: `Mock ${mockRec.details.strategy} signal`,
+                timestamp: mockRec.timestamp
+              }
+            ],
+            risk_assessment: {
+              level: mockRec.confidence > 0.7 ? 'LOW' : mockRec.confidence > 0.5 ? 'MEDIUM' : 'HIGH',
+              consistency: mockRec.confidence,
+              signal_distribution: { [mockRec.recommendation]: 1.0 },
+              factors: ['Mock volatility', 'Mock trend analysis']
+            },
+            market_context: {
+              trend: 'BULLISH',
+              volatility: 'MEDIUM',
+              recent_performance: {
+                day_1: (Math.random() - 0.5) * 0.1,
+                day_7: (Math.random() - 0.5) * 0.2,
+                volatility: Math.random() * 0.1
+              },
+              market_activity: {
+                volume_24h: Math.random() * 1000000,
+                price_momentum: Math.random() * 0.1
+              }
+            }
+          });
+        }
+        
+        setRecommendations(mockRecommendations);
+      } else {
+        // Real API calls (original code)
+        const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT'];
+        const promises = symbols.map(symbol => 
+          fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`)
+            .then(res => res.json())
+        );
+        
+        const results = await Promise.all(promises);
+        setRecommendations(results);
+      }
     } catch (err) {
       setError('Error fetching recommendations');
       console.error('Error:', err);
