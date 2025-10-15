@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Activity, DollarSign } from 'lucide-react';
-import { useMockData } from '../hooks/useMockData';
 
 interface RealTimeStatsProps {}
 
@@ -13,7 +12,6 @@ interface StatsData {
 }
 
 const RealTimeStats: React.FC<RealTimeStatsProps> = () => {
-  const { getStats, getSupportedSymbols, isLoading, lastUpdated, MOCK_MODE } = useMockData();
   const [stats, setStats] = useState<StatsData>({
     activeRecommendations: 0,
     totalPnL: 0,
@@ -29,81 +27,67 @@ const RealTimeStats: React.FC<RealTimeStatsProps> = () => {
     setError(null);
     
     try {
-      if (MOCK_MODE) {
-        // Use mock data
-        const mockStatsData = await getStats();
-        const symbols = await getSupportedSymbols();
-        
-        setStats({
-          activeRecommendations: symbols.length,
-          totalPnL: mockStatsData.totalReturn * 100,
-          winRate: mockStatsData.winRate * 100,
-          maxDrawdown: mockStatsData.maxDrawdown * 100,
-          lastUpdate: lastUpdated.toLocaleTimeString()
-        });
-      } else {
-        // Real API calls (original code)
-        const symbolsResponse = await fetch('http://localhost:8000/api/v1/enhanced-recommendations/supported-symbols');
-        const symbols = await symbolsResponse.json();
-        
-        // Get batch recommendations to calculate stats
-        const symbolsStr = symbols.join(',');
-        const recommendationsResponse = await fetch(
-          `http://localhost:8000/api/v1/enhanced-recommendations/batch/${symbolsStr}?timeframe=1d&days=30`
-        );
-        const recommendations = await recommendationsResponse.json();
+      // Real API calls
+      const symbolsResponse = await fetch('http://localhost:8001/api/v1/enhanced-recommendations/supported-symbols');
+      const symbols = await symbolsResponse.json();
       
-        // Calculate stats from real data
-        const activeRecommendations = symbols.length;
-        let totalConfidence = 0;
-        let buySignals = 0;
-        let sellSignals = 0;
-        let holdSignals = 0;
-        let totalPriceChange = 0;
-        let maxDrawdown = 0;
+      // Get batch recommendations to calculate stats
+      const symbolsStr = symbols.join(',');
+      const recommendationsResponse = await fetch(
+        `http://localhost:8001/api/v1/enhanced-recommendations/batch/${symbolsStr}?timeframe=1d&days=30`
+      );
+      const recommendations = await recommendationsResponse.json();
+    
+      // Calculate stats from real data
+      const activeRecommendations = symbols.length;
+      let totalConfidence = 0;
+      let buySignals = 0;
+      let sellSignals = 0;
+      let holdSignals = 0;
+      let totalPriceChange = 0;
+      let maxDrawdown = 0;
+      
+      Object.values(recommendations).forEach((rec: any) => {
+        if (rec.error) return;
         
-        Object.values(recommendations).forEach((rec: any) => {
-          if (rec.error) return;
-          
-          totalConfidence += rec.confidence || 0;
-          
-          if (rec.recommendation === 'BUY' || rec.recommendation === 'STRONG_BUY') {
-            buySignals++;
-          } else if (rec.recommendation === 'SELL' || rec.recommendation === 'STRONG_SELL') {
-            sellSignals++;
-          } else {
-            holdSignals++;
-          }
-          
-          // Calculate price change from market context
-          if (rec.market_context?.recent_performance?.day_1) {
-            totalPriceChange += rec.market_context.recent_performance.day_1;
-          }
-          
-          // Estimate drawdown from volatility
-          if (rec.market_context?.volatility === 'HIGH') {
-            maxDrawdown = Math.max(maxDrawdown, -15);
-          } else if (rec.market_context?.volatility === 'MEDIUM') {
-            maxDrawdown = Math.max(maxDrawdown, -8);
-          } else {
-            maxDrawdown = Math.max(maxDrawdown, -3);
-          }
-        });
+        totalConfidence += rec.confidence || 0;
         
-        const avgConfidence = activeRecommendations > 0 ? totalConfidence / activeRecommendations : 0;
-        const winRate = buySignals > 0 ? (buySignals / (buySignals + sellSignals + holdSignals)) * 100 : 0;
+        if (rec.recommendation === 'BUY' || rec.recommendation === 'STRONG_BUY') {
+          buySignals++;
+        } else if (rec.recommendation === 'SELL' || rec.recommendation === 'STRONG_SELL') {
+          sellSignals++;
+        } else {
+          holdSignals++;
+        }
         
-        // Estimate P&L based on signal distribution and confidence
-        const estimatedPnL = (buySignals * avgConfidence * 2.5) - (sellSignals * avgConfidence * 1.8);
+        // Calculate price change from market context
+        if (rec.market_context?.recent_performance?.day_1) {
+          totalPriceChange += rec.market_context.recent_performance.day_1;
+        }
         
-        setStats({
-          activeRecommendations,
-          totalPnL: estimatedPnL,
-          winRate: winRate,
-          maxDrawdown: maxDrawdown,
-          lastUpdate: new Date().toLocaleTimeString()
-        });
-      }
+        // Estimate drawdown from volatility
+        if (rec.market_context?.volatility === 'HIGH') {
+          maxDrawdown = Math.max(maxDrawdown, -15);
+        } else if (rec.market_context?.volatility === 'MEDIUM') {
+          maxDrawdown = Math.max(maxDrawdown, -8);
+        } else {
+          maxDrawdown = Math.max(maxDrawdown, -3);
+        }
+      });
+      
+      const avgConfidence = activeRecommendations > 0 ? totalConfidence / activeRecommendations : 0;
+      const winRate = buySignals > 0 ? (buySignals / (buySignals + sellSignals + holdSignals)) * 100 : 0;
+      
+      // Estimate P&L based on signal distribution and confidence
+      const estimatedPnL = (buySignals * avgConfidence * 2.5) - (sellSignals * avgConfidence * 1.8);
+      
+      setStats({
+        activeRecommendations,
+        totalPnL: estimatedPnL,
+        winRate: winRate,
+        maxDrawdown: maxDrawdown,
+        lastUpdate: new Date().toLocaleTimeString()
+      });
       
     } catch (err) {
       console.error("Error fetching stats:", err);

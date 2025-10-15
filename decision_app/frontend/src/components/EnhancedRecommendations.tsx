@@ -1,12 +1,9 @@
-import React, { useState, useEffect } from 'react'; import { Button } from '@/components/ui/button'; import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'; import { useMockData } from '../hooks/useMockData'; import { EnhancedRecommendation } from '../types/recommendations'; import { formatPrice, formatPercentage, formatNumber, formatRiskLevel, formatTrend, safeGet } from '../lib/formatters';
-
-const EnhancedRecommendations: React.FC = () => {
-  const { getRecommendation, getSupportedSymbols, MOCK_MODE } = useMockData();
+import React, { useState, useEffect } from 'react'; import { Button } from '@/components/ui/button'; import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'; import { useRecommendations } from '../hooks/useRecommendations'; import { EnhancedRecommendation } from '../types/recommendations'; import { formatPrice, formatPercentage, formatNumber, formatRiskLevel, formatTrend, safeGet } from '../lib/formatters'; const EnhancedRecommendations: React.FC = () => { const { getRecommendation, getSupportedSymbols, isLoading: hookLoading } = useRecommendations();
   const [recommendations, setRecommendations] = useState<EnhancedRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRecommendations = async () => { setLoading(true); setError(null); try { if (MOCK_MODE) { const symbols = await getSupportedSymbols(); const mockRecommendations: EnhancedRecommendation[] = []; for (const symbol of symbols.slice(0, 3)) { const rec = await getRecommendation(symbol, '1d', 30); mockRecommendations.push(rec); } setRecommendations(mockRecommendations); } else { const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT']; const promises = symbols.map(symbol => fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`).then(res => res.json())); const results = await Promise.all(promises); setRecommendations(results); } } catch (err) { setError('Error fetching recommendations'); console.error('Error:', err); } finally { setLoading(false); } };
+  const fetchRecommendations = async () => { setLoading(true); setError(null); try { const symbols = await getSupportedSymbols(); const defaultSymbols = symbols.length > 0 ? symbols.slice(0, 3) : ['BTCUSDT', 'ETHUSDT', 'ADAUSDT']; const recs: EnhancedRecommendation[] = []; for (const symbol of defaultSymbols) { try { const rec = await getRecommendation(symbol, '1d', 30); recs.push(rec); } catch (err) { console.error(`Error fetching recommendation for ${symbol}:`, err); } } setRecommendations(recs); } catch (err) { setError('Error fetching recommendations'); console.error('Error:', err); } finally { setLoading(false); } };
 
   useEffect(() => {
     fetchRecommendations();

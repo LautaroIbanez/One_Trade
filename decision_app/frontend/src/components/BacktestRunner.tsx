@@ -1,109 +1,6 @@
-import React, { useState } from 'react';
-import { Button } from '@/components/ui/button';
-import { Play, BarChart3, TrendingUp, TrendingDown, Clock, DollarSign } from 'lucide-react';
+import React, { useState, useEffect } from 'react'; import { Button } from '@/components/ui/button'; import { Play, BarChart3, TrendingUp, TrendingDown, Clock } from 'lucide-react'; import { useBacktestsApi } from '../hooks/useBacktestsApi'; import { normalizeQuickBacktestResult } from '../types/backtests'; import { formatPrice, formatNumber } from '../lib/formatters'; interface BacktestRunnerProps {} const BacktestRunner: React.FC<BacktestRunnerProps> = () => { const { strategies, symbols, loadingStrategies, loadingSymbols, runQuickBacktest, compareStrategies: apiCompareStrategies, error: apiError } = useBacktestsApi(); const [symbol, setSymbol] = useState('BTCUSDT'); const [strategy, setStrategy] = useState('RSI Strategy'); const [days, setDays] = useState(30); const [initialCapital, setInitialCapital] = useState(10000); const [loading, setLoading] = useState(false); const [result, setResult] = useState<ReturnType<typeof normalizeQuickBacktestResult> | null>(null); const [error, setError] = useState<string | null>(null); useEffect(() => { if (strategies.length > 0 && !strategies.includes(strategy)) { setStrategy(strategies[0]); } }, [strategies, strategy]); useEffect(() => { if (symbols.length > 0 && !symbols.includes(symbol)) { setSymbol(symbols[0]); } }, [symbols, symbol]);
 
-interface BacktestRunnerProps {}
-
-interface BacktestResult {
-  symbol: string;
-  strategy: string;
-  period: string;
-  initial_capital: number;
-  final_capital: number;
-  total_return: string;
-  annualized_return: string;
-  sharpe_ratio: string;
-  max_drawdown: string;
-  win_rate: string;
-  total_trades: number;
-  avg_trade_duration: string;
-  best_trade: string;
-  worst_trade: string;
-  profit_factor: string;
-  calmar_ratio: string;
-  sortino_ratio: string;
-}
-
-const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
-  const [symbol, setSymbol] = useState('BTCUSDT');
-  const [strategy, setStrategy] = useState('RSI Strategy');
-  const [days, setDays] = useState(30);
-  const [initialCapital, setInitialCapital] = useState(10000);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<BacktestResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const availableStrategies = [
-    'RSI Strategy',
-    'MACD Strategy',
-    'Bollinger Bands Strategy'
-  ];
-
-  const availableSymbols = [
-    'BTCUSDT',
-    'ETHUSDT',
-    'ADAUSDT',
-    'SOLUSDT'
-  ];
-
-  const runBacktest = async () => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const response = await fetch(
-        `http://localhost:8000/api/v1/backtests/quick-test/${symbol}?strategy=${encodeURIComponent(strategy)}&days=${days}&initial_capital=${initialCapital}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setResult(data);
-    } catch (err) {
-      console.error('Error running backtest:', err);
-      setError(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const compareStrategies = async () => {
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const response = await fetch(
-        `http://localhost:8000/api/v1/backtests/compare/${symbol}?days=${days}&initial_capital=${initialCapital}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Strategy comparison:', data);
-      // For now, just show the first strategy result
-      if (data.strategies && Object.keys(data.strategies).length > 0) {
-        const firstStrategy = Object.keys(data.strategies)[0];
-        setResult({
-          symbol: data.symbol,
-          strategy: `Comparison (${Object.keys(data.strategies).length} strategies)`,
-          period: data.period,
-          initial_capital: data.initial_capital,
-          ...data.strategies[firstStrategy]
-        });
-      }
-    } catch (err) {
-      console.error('Error comparing strategies:', err);
-      setError(`Error: ${err instanceof Error ? err.message : String(err)}`);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const runBacktest = async () => { setLoading(true); setError(null); setResult(null); try { const data = await runQuickBacktest(symbol, strategy, days, initialCapital); setResult(data); } catch (err) { console.error('Error running backtest:', err); setError(`Error: ${err instanceof Error ? err.message : String(err)}`); } finally { setLoading(false); } }; const compareStrategies = async () => { setLoading(true); setError(null); setResult(null); try { const data = await apiCompareStrategies(symbol, days, initialCapital); console.log('Strategy comparison:', data); if (data.strategies && Object.keys(data.strategies).length > 0) { const firstStrategyName = Object.keys(data.strategies)[0]; const firstStrategyData = data.strategies[firstStrategyName]; if (!firstStrategyData.error) { const mockResult = normalizeQuickBacktestResult({ symbol: data.symbol, strategy: `Comparison (${Object.keys(data.strategies).length} strategies)`, period: data.period, initial_capital: data.initial_capital, final_capital: data.initial_capital, ...firstStrategyData } as any); setResult(mockResult); } else { setError(`Strategy comparison failed: ${firstStrategyData.error}`); } } } catch (err) { console.error('Error comparing strategies:', err); setError(`Error: ${err instanceof Error ? err.message : String(err)}`); } finally { setLoading(false); } };
 
   const getReturnColor = (returnValue: string) => {
     const value = parseFloat(returnValue.replace('%', ''));
@@ -128,33 +25,7 @@ const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
         </div>
       </div>
 
-      {/* Configuration */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-gray-50">
-        <div>
-          <label className="block text-sm font-medium mb-1">Symbol</label>
-          <select
-            value={symbol}
-            onChange={(e) => setSymbol(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {availableSymbols.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium mb-1">Strategy</label>
-          <select
-            value={strategy}
-            onChange={(e) => setStrategy(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            {availableStrategies.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
-        </div>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 border rounded-lg bg-gray-50"> <div> <label className="block text-sm font-medium mb-1">Symbol</label> <select value={symbol} onChange={(e) => setSymbol(e.target.value)} disabled={loadingSymbols || symbols.length === 0} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed" > {loadingSymbols ? ( <option>Loading...</option> ) : symbols.length === 0 ? ( <option>No symbols available</option> ) : ( symbols.map(s => ( <option key={s} value={s}>{s}</option> )) )} </select> </div> <div> <label className="block text-sm font-medium mb-1">Strategy</label> <select value={strategy} onChange={(e) => setStrategy(e.target.value)} disabled={loadingStrategies || strategies.length === 0} className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed" > {loadingStrategies ? ( <option>Loading...</option> ) : strategies.length === 0 ? ( <option>No strategies available</option> ) : ( strategies.map(s => ( <option key={s} value={s}>{s}</option> )) )} </select> </div>
 
         <div>
           <label className="block text-sm font-medium mb-1">Days</label>
@@ -195,27 +66,7 @@ const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
           <div className="p-4 border rounded-lg bg-white">
             <h3 className="text-lg font-semibold mb-4">Backtest Results</h3>
             
-            {/* Summary */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">${result.final_capital.toLocaleString()}</div>
-                <div className="text-sm text-gray-600">Final Capital</div>
-              </div>
-              <div className="text-center p-3 border rounded-lg">
-                <div className={`text-2xl font-bold ${getReturnColor(result.total_return)}`}>
-                  {result.total_return}
-                </div>
-                <div className="text-sm text-gray-600">Total Return</div>
-              </div>
-              <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">{result.sharpe_ratio}</div>
-                <div className="text-sm text-gray-600">Sharpe Ratio</div>
-              </div>
-              <div className="text-center p-3 border rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">{result.total_trades}</div>
-                <div className="text-sm text-gray-600">Total Trades</div>
-              </div>
-            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6"> <div className="text-center p-3 border rounded-lg"> <div className="text-2xl font-bold text-blue-600">{formatPrice(result.final_capital)}</div> <div className="text-sm text-gray-600">Final Capital</div> </div> <div className="text-center p-3 border rounded-lg"> <div className={`text-2xl font-bold ${getReturnColor(result.total_return)}`}> {result.total_return} </div> <div className="text-sm text-gray-600">Total Return</div> </div> <div className="text-center p-3 border rounded-lg"> <div className="text-2xl font-bold text-purple-600">{formatNumber(result.sharpe_ratio_num, 2)}</div> <div className="text-sm text-gray-600">Sharpe Ratio</div> </div> <div className="text-center p-3 border rounded-lg"> <div className="text-2xl font-bold text-orange-600">{result.total_trades}</div> <div className="text-sm text-gray-600">Total Trades</div> </div> </div>
 
             {/* Detailed Metrics */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

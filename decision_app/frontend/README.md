@@ -45,66 +45,54 @@ src/
 └── test/                # Configuración de tests
 ```
 
-## Modo Mock
+## Configuración del Backend
 
-El frontend puede operar en modo mock sin necesidad de un backend activo. Esto es útil para:
-- Desarrollo de UI sin dependencias
-- Testing de componentes
-- Demos y presentaciones
+El frontend requiere un backend activo para funcionar. Configure la URL del API en el archivo de entorno:
 
-### Activar/Desactivar Mock Mode
+### Archivo de Entorno
 
-En `src/hooks/useMockData.ts`:
-```typescript
-const MOCK_MODE = true;  // true = mock, false = API real
+Crear archivo `.env.local` en el directorio `frontend/`:
+```bash
+VITE_API_URL=http://localhost:8000/api/v1
 ```
 
-Ver [docs/frontend-mocks.md](docs/frontend-mocks.md) para documentación completa.
+Para producción, actualizar la variable `VITE_API_URL` con la URL apropiada del backend en producción.
 
-## Cambios Recientes (Corrección Pantalla en Blanco)
+## Cambios Recientes
 
-### Problema Resuelto
-La aplicación quedaba en blanco al intentar acceder a propiedades `undefined` en el componente `EnhancedRecommendations`.
+### Migración a API Real (2025-10-15)
 
-### Solución Implementada
+Eliminación completa de la capa mock y migración a integración real con el backend.
 
-1. **Tipos Compartidos** (`src/types/recommendations.ts`)
-   - Interfaces TypeScript formalizadas
-   - Valores por defecto documentados
-   - Tipos consistentes entre componentes
+**Cambios Principales**:
 
-2. **Hook Mock Mejorado** (`src/hooks/useMockData.ts`)
-   - Ahora devuelve objetos `EnhancedRecommendation` completos
-   - Generación dinámica de todos los campos requeridos
-   - Datos realistas con variación controlada
+1. **Cliente API Centralizado** (`src/lib/api-client.ts`)
+   - Wrapper sobre `fetch` con manejo de errores
+   - Configuración centralizada de base URL
+   - Tipado fuerte de respuestas
 
-3. **Helpers de Formateo** (`src/lib/formatters.ts`)
-   - Funciones seguras que manejan valores null/undefined
-   - `formatPrice()`, `formatPercentage()`, `formatNumber()`
-   - `safeGet()` para acceso seguro a valores
+2. **Hooks de Producción**
+   - `useBacktestsApi`: Backtests y comparación de estrategias
+   - `useRecommendations`: Recomendaciones mejoradas
+   - `useMarketStats`: Estadísticas de mercado en tiempo real
 
-4. **Componente Resiliente** (`src/components/EnhancedRecommendations.tsx`)
-   - Uso de optional chaining (`?.`)
-   - Nullish coalescing (`??`)
-   - Validación de arrays antes de iteración
-   - Mensajes de fallback cuando faltan datos
+3. **Tipos TypeScript Alineados** (`src/types/backtests.ts`)
+   - Interfaces que reflejan esquemas del backend
+   - Funciones de parsing para porcentajes/números
+   - Normalización de respuestas
 
-5. **Tests Agregados**
-   - `src/lib/__tests__/formatters.test.ts`
-   - `src/components/__tests__/EnhancedRecommendations.test.tsx`
+4. **Componentes Actualizados**
+   - `BacktestRunner`: Usa datos reales del backend
+   - `BacktestComparison`: Ejecuta comparaciones reales
+   - `EnhancedRecommendations`: Sin dependencia de mocks
+   - `RealTimeStats`: Calcula con datos reales
 
-### Archivos Creados/Modificados
+**Archivos Eliminados**:
+- `src/hooks/useMockData.ts` (reemplazado por hooks de producción)
+- `docs/frontend-mocks.md` (ya no relevante)
 
-#### Nuevos Archivos
-- `src/types/recommendations.ts`
-- `src/lib/formatters.ts`
-- `src/lib/__tests__/formatters.test.ts`
-- `src/components/__tests__/EnhancedRecommendations.test.tsx`
-- `docs/frontend-mocks.md`
-
-#### Archivos Modificados
-- `src/hooks/useMockData.ts`: Generación completa de datos mock
-- `src/components/EnhancedRecommendations.tsx`: Uso de tipos y helpers seguros
+**Documentación Nueva**:
+- `docs/QA_BACKTEST_SECTION.md`: Procedimiento QA manual
 
 ## Tecnologías
 
