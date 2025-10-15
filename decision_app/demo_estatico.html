@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>One Trade Decision App - Demo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#1e40af'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50">
+    <!-- Header -->
+    <header class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-chart-line text-blue-600 text-2xl"></i>
+                        <span class="ml-2 text-xl font-bold text-gray-900">One Trade</span>
+                    </div>
+                    <div class="ml-4">
+                        <span class="text-lg font-medium text-gray-700">Decision App</span>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <button class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-bell text-xl"></i>
+                    </button>
+                    <button class="text-gray-500 hover:text-gray-700">
+                        <i class="fas fa-user text-xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="flex">
+        <!-- Sidebar -->
+        <nav class="bg-white shadow-sm w-64 min-h-screen">
+            <div class="p-4">
+                <ul class="space-y-2">
+                    <li>
+                        <a href="#dashboard" class="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md">
+                            <i class="fas fa-chart-bar mr-3"></i>
+                            Dashboard
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#recommendations" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
+                            <i class="fas fa-chart-line mr-3"></i>
+                            Recommendations
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#backtests" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
+                            <i class="fas fa-clock mr-3"></i>
+                            Backtests
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#market-data" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
+                            <i class="fas fa-database mr-3"></i>
+                            Market Data
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#settings" class="flex items-center px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md">
+                            <i class="fas fa-cog mr-3"></i>
+                            Settings
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="flex-1 p-8">
+            <div class="max-w-7xl mx-auto">
+                <h1 class="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
+                <p class="text-gray-600 mb-8">Overview of your trading recommendations and performance</p>
+
+                <!-- Real-time Stats -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <!-- Active Recommendations -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-chart-line text-blue-600 text-2xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-500">Active Recommendations</p>
+                                <p class="text-2xl font-bold text-gray-900">6</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Total P&L -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-dollar-sign text-green-600 text-2xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-500">Total P&L</p>
+                                <p class="text-2xl font-bold text-green-600">+15.2%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Win Rate -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-percentage text-blue-600 text-2xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-500">Win Rate</p>
+                                <p class="text-2xl font-bold text-gray-900">68%</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Max Drawdown -->
+                    <div class="bg-white p-6 rounded-lg shadow-sm border">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0">
+                                <i class="fas fa-arrow-down text-red-600 text-2xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-500">Max Drawdown</p>
+                                <p class="text-2xl font-bold text-red-600">-8.0%</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Enhanced Recommendations -->
+                <div class="bg-white rounded-lg shadow-sm border mb-8">
+                    <div class="px-6 py-4 border-b">
+                        <div class="flex items-center justify-between">
+                            <h2 class="text-lg font-semibold text-gray-900">Enhanced Recommendations</h2>
+                            <button onclick="simulateRefresh()" class="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
+                                <i class="fas fa-sync-alt mr-2"></i>
+                                Refresh
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6">
+                        <div class="space-y-4">
+                            <!-- BTCUSDT -->
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-blue-600 rounded-full mr-3"></div>
+                                        <span class="font-semibold text-lg">BTCUSDT</span>
+                                        <span class="ml-2 text-sm text-gray-500">$45,000</span>
+                                    </div>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            BUY
+                                        </span>
+                                        <span class="text-sm text-gray-600">Confidence: 75%</span>
+                                        <span class="text-xs text-gray-500">RSI + MACD Strategy</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ETHUSDT -->
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-gray-400 rounded-full mr-3"></div>
+                                        <span class="font-semibold text-lg">ETHUSDT</span>
+                                        <span class="ml-2 text-sm text-gray-500">$3,200</span>
+                                    </div>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            HOLD
+                                        </span>
+                                        <span class="text-sm text-gray-600">Confidence: 65%</span>
+                                        <span class="text-xs text-gray-500">MACD Strategy</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- ADAUSDT -->
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-red-600 rounded-full mr-3"></div>
+                                        <span class="font-semibold text-lg">ADAUSDT</span>
+                                        <span class="ml-2 text-sm text-gray-500">$0.45</span>
+                                    </div>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            SELL
+                                        </span>
+                                        <span class="text-sm text-gray-600">Confidence: 55%</span>
+                                        <span class="text-xs text-gray-500">Bollinger Bands Strategy</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SOLUSDT -->
+                            <div class="border rounded-lg p-4">
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center">
+                                        <div class="w-3 h-3 bg-blue-600 rounded-full mr-3"></div>
+                                        <span class="font-semibold text-lg">SOLUSDT</span>
+                                        <span class="ml-2 text-sm text-gray-500">$95</span>
+                                    </div>
+                                    <div class="flex items-center space-x-4">
+                                        <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            BUY
+                                        </span>
+                                        <span class="text-sm text-gray-600">Confidence: 70%</span>
+                                        <span class="text-xs text-gray-500">RSI Strategy</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Performance Chart -->
+                <div class="bg-white rounded-lg shadow-sm border mb-8">
+                    <div class="px-6 py-4 border-b">
+                        <h2 class="text-lg font-semibold text-gray-900">Performance Overview</h2>
+                    </div>
+                    <div class="p-6">
+                        <div class="h-64 bg-gray-50 rounded-lg flex items-center justify-center">
+                            <div class="text-center">
+                                <i class="fas fa-chart-area text-4xl text-gray-400 mb-4"></i>
+                                <p class="text-gray-500">Performance chart would be displayed here</p>
+                                <p class="text-sm text-gray-400 mt-2">Demo Mode: Static data for demonstration</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Banner -->
+                <div class="mt-8 bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-check-circle text-green-600 mr-3"></i>
+                        <div>
+                            <h3 class="text-sm font-medium text-green-800">Demo Mode Active</h3>
+                            <p class="text-sm text-green-700 mt-1">
+                                Esta es una demostración estática de la interfaz de One Trade Decision App. 
+                                Todos los datos mostrados son simulados para fines de demostración.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Backend Status -->
+                <div class="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div class="flex items-center">
+                        <i class="fas fa-info-circle text-blue-600 mr-3"></i>
+                        <div>
+                            <h3 class="text-sm font-medium text-blue-800">Backend Status</h3>
+                            <p class="text-sm text-blue-700 mt-1">
+                                Backend disponible en: <a href="http://localhost:8000/docs" target="_blank" class="underline">http://localhost:8000/docs</a><br>
+                                API Health: <a href="http://localhost:8000/health" target="_blank" class="underline">http://localhost:8000/health</a>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Función simple para simular refresh
+        function simulateRefresh() {
+            const button = event.target;
+            const originalText = button.innerHTML;
+            
+            button.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Refreshing...';
+            button.disabled = true;
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.disabled = false;
+                
+                // Mostrar notificación
+                const notification = document.createElement('div');
+                notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+                notification.innerHTML = '<i class="fas fa-check mr-2"></i>Data refreshed successfully!';
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.remove();
+                }, 3000);
+            }, 1500);
+        }
+
+        // Actualizar timestamp cada minuto
+        function updateTimestamp() {
+            const timestamp = new Date().toLocaleString();
+            console.log('Demo actualizado:', timestamp);
+        }
+
+        setInterval(updateTimestamp, 60000);
+        updateTimestamp();
+
+        // Log de carga
+        console.log('One Trade Decision App Demo loaded successfully');
+        console.log('Backend API: http://localhost:8000');
+        console.log('API Docs: http://localhost:8000/docs');
+    </script>
+</body>
+</html>
+

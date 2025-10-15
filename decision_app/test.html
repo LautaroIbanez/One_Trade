@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>One Trade Decision App - Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 40px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .header {
+            background: #3b82f6;
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success { background: #d1fae5; border-left: 4px solid #10b981; }
+        .warning { background: #fef3c7; border-left: 4px solid #f59e0b; }
+        .error { background: #fee2e2; border-left: 4px solid #ef4444; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #2563eb; }
+        .loading { color: #f59e0b; }
+        .data { background: #f8fafc; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 One Trade Decision App</h1>
+            <p>Test de Conectividad Backend-Frontend</p>
+        </div>
+
+        <div id="status" class="status warning">
+            <strong>Estado:</strong> Iniciando verificación...
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="testBackend()">🔍 Probar Backend</button>
+            <button onclick="loadSymbols()">📊 Cargar Símbolos</button>
+            <button onclick="loadRecommendations()">💡 Cargar Recomendaciones</button>
+        </div>
+
+        <div id="results">
+            <p>Haz clic en los botones para probar la conectividad con el backend.</p>
+        </div>
+
+        <div class="data">
+            <h3>📋 Información del Sistema</h3>
+            <p><strong>Frontend:</strong> HTML puro funcionando</p>
+            <p><strong>Backend esperado:</strong> http://localhost:8000</p>
+            <p><strong>Timestamp:</strong> <span id="timestamp"></span></p>
+        </div>
+    </div>
+
+    <script>
+        // Actualizar timestamp
+        document.getElementById('timestamp').textContent = new Date().toLocaleString();
+
+        function updateStatus(message, type = 'warning') {
+            const status = document.getElementById('status');
+            status.innerHTML = `<strong>Estado:</strong> ${message}`;
+            status.className = `status ${type}`;
+        }
+
+        function addResult(title, content, type = 'success') {
+            const results = document.getElementById('results');
+            results.innerHTML += `
+                <div class="status ${type}">
+                    <strong>${title}</strong><br>
+                    ${content}
+                </div>
+            `;
+        }
+
+        async function testBackend() {
+            updateStatus('Probando conexión con backend...', 'loading');
+            
+            try {
+                const response = await fetch('http://localhost:8000/health');
+                const data = await response.json();
+                
+                updateStatus('✅ Backend conectado correctamente', 'success');
+                addResult('🔗 Conexión Backend', `
+                    Status: ${data.status}<br>
+                    CORS: ${data.cors_enabled}<br>
+                    Timestamp: ${data.timestamp}
+                `, 'success');
+                
+            } catch (error) {
+                updateStatus('❌ Error conectando con backend', 'error');
+                addResult('🔗 Conexión Backend', `
+                    Error: ${error.message}<br>
+                    Verifica que el backend esté corriendo en http://localhost:8000
+                `, 'error');
+            }
+        }
+
+        async function loadSymbols() {
+            updateStatus('Cargando símbolos soportados...', 'loading');
+            
+            try {
+                const response = await fetch('http://localhost:8000/api/v1/enhanced-recommendations/supported-symbols');
+                const symbols = await response.json();
+                
+                updateStatus('✅ Símbolos cargados correctamente', 'success');
+                addResult('📊 Símbolos Soportados', `
+                    Total: ${symbols.length} símbolos<br>
+                    Lista: ${symbols.join(', ')}
+                `, 'success');
+                
+            } catch (error) {
+                updateStatus('❌ Error cargando símbolos', 'error');
+                addResult('📊 Símbolos Soportados', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function loadRecommendations() {
+            updateStatus('Cargando recomendaciones...', 'loading');
+            
+            try {
+                // Primero obtener símbolos
+                const symbolsResponse = await fetch('http://localhost:8000/api/v1/enhanced-recommendations/supported-symbols');
+                const symbols = await symbolsResponse.json();
+                
+                // Cargar recomendación para el primer símbolo
+                const recResponse = await fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbols[0]}?timeframe=1d&days=30`);
+                const recommendation = await recResponse.json();
+                
+                updateStatus('✅ Recomendaciones cargadas', 'success');
+                addResult('💡 Recomendación de Ejemplo', `
+                    Símbolo: ${recommendation.symbol}<br>
+                    Recomendación: ${recommendation.recommendation}<br>
+                    Confianza: ${(recommendation.confidence * 100).toFixed(1)}%<br>
+                    Estrategia: ${recommendation.details.strategy}
+                `, 'success');
+                
+            } catch (error) {
+                updateStatus('❌ Error cargando recomendaciones', 'error');
+                addResult('💡 Recomendaciones', `Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Probar backend automáticamente al cargar
+        window.addEventListener('load', function() {
+            setTimeout(testBackend, 1000);
+        });
+    </script>
+</body>
+</html>
+

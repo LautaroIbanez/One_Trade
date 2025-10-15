@@ -1,54 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react';
-import { useMockData } from '../hooks/useMockData';
-
-interface StrategySignal {
-  strategy: string;
-  signal: string;
-  confidence: number;
-  weight: number;
-  reasoning: string;
-  timestamp: string;
-}
-
-interface RiskAssessment {
-  level: string;
-  consistency: number;
-  signal_distribution: Record<string, number>;
-  factors: string[];
-}
-
-interface MarketContext {
-  trend: string;
-  volatility: string;
-  recent_performance: {
-    day_1: number;
-    day_7: number;
-    volatility: number;
-  };
-  market_activity: {
-    volume_24h: number;
-    trades_24h: number;
-  };
-}
-
-interface EnhancedRecommendation {
-  symbol: string;
-  current_price: number;
-  recommendation: string;
-  confidence: number;
-  reasoning: string;
-  risk_assessment: RiskAssessment;
-  strategy_signals: StrategySignal[];
-  scores: {
-    buy_score: number;
-    sell_score: number;
-    hold_score: number;
-  };
-  market_context: MarketContext;
-  timestamp: string;
-}
+import React, { useState, useEffect } from 'react'; import { Button } from '@/components/ui/button'; import { RefreshCw, TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'; import { useMockData } from '../hooks/useMockData'; import { EnhancedRecommendation } from '../types/recommendations'; import { formatPrice, formatPercentage, formatNumber, formatRiskLevel, formatTrend, safeGet } from '../lib/formatters';
 
 const EnhancedRecommendations: React.FC = () => {
   const { getRecommendation, getSupportedSymbols, MOCK_MODE } = useMockData();
@@ -56,74 +6,7 @@ const EnhancedRecommendations: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRecommendations = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      if (MOCK_MODE) {
-        // Use mock data
-        const symbols = await getSupportedSymbols();
-        const mockRecommendations = [];
-        
-        for (const symbol of symbols.slice(0, 3)) { // Show first 3 symbols
-          const mockRec = await getRecommendation(symbol, '1d', 30);
-          mockRecommendations.push({
-            symbol: mockRec.symbol,
-            recommendation: mockRec.recommendation,
-            confidence: mockRec.confidence,
-            timestamp: mockRec.timestamp,
-            strategy_signals: [
-              {
-                strategy: mockRec.details.strategy,
-                signal: mockRec.recommendation,
-                confidence: mockRec.confidence,
-                weight: 1.0,
-                reasoning: `Mock ${mockRec.details.strategy} signal`,
-                timestamp: mockRec.timestamp
-              }
-            ],
-            risk_assessment: {
-              level: mockRec.confidence > 0.7 ? 'LOW' : mockRec.confidence > 0.5 ? 'MEDIUM' : 'HIGH',
-              consistency: mockRec.confidence,
-              signal_distribution: { [mockRec.recommendation]: 1.0 },
-              factors: ['Mock volatility', 'Mock trend analysis']
-            },
-            market_context: {
-              trend: 'BULLISH',
-              volatility: 'MEDIUM',
-              recent_performance: {
-                day_1: (Math.random() - 0.5) * 0.1,
-                day_7: (Math.random() - 0.5) * 0.2,
-                volatility: Math.random() * 0.1
-              },
-              market_activity: {
-                volume_24h: Math.random() * 1000000,
-                price_momentum: Math.random() * 0.1
-              }
-            }
-          });
-        }
-        
-        setRecommendations(mockRecommendations);
-      } else {
-        // Real API calls (original code)
-        const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT'];
-        const promises = symbols.map(symbol => 
-          fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`)
-            .then(res => res.json())
-        );
-        
-        const results = await Promise.all(promises);
-        setRecommendations(results);
-      }
-    } catch (err) {
-      setError('Error fetching recommendations');
-      console.error('Error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchRecommendations = async () => { setLoading(true); setError(null); try { if (MOCK_MODE) { const symbols = await getSupportedSymbols(); const mockRecommendations: EnhancedRecommendation[] = []; for (const symbol of symbols.slice(0, 3)) { const rec = await getRecommendation(symbol, '1d', 30); mockRecommendations.push(rec); } setRecommendations(mockRecommendations); } else { const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT']; const promises = symbols.map(symbol => fetch(`http://localhost:8000/api/v1/enhanced-recommendations/generate/${symbol}?timeframe=1d&days=30`).then(res => res.json())); const results = await Promise.all(promises); setRecommendations(results); } } catch (err) { setError('Error fetching recommendations'); console.error('Error:', err); } finally { setLoading(false); } };
 
   useEffect(() => {
     fetchRecommendations();
@@ -209,80 +92,12 @@ const EnhancedRecommendations: React.FC = () => {
             <div className="border-b pb-4 mb-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-semibold">{rec.symbol}</h3>
-                <div className="flex items-center space-x-2">
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getRecommendationColor(rec.recommendation)}`}>
-                    {getRecommendationIcon(rec.recommendation)}
-                    <span className="ml-1">{rec.recommendation}</span>
-                  </span>
-                  <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRiskColor(rec.risk_assessment.level)}`}>
-                    {rec.risk_assessment.level} Risk
-                  </span>
-                </div>
+                <div className="flex items-center space-x-2"> <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getRecommendationColor(rec.recommendation ?? 'HOLD')}`}> {getRecommendationIcon(rec.recommendation ?? 'HOLD')} <span className="ml-1">{rec.recommendation ?? 'HOLD'}</span> </span> <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRiskColor(rec.risk_assessment?.level ?? 'MEDIUM')}`}> {formatRiskLevel(rec.risk_assessment?.level)} Risk </span> </div>
               </div>
             </div>
-            <div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Price and Confidence */}
-                <div className="space-y-2">
-                  <div className="text-2xl font-bold">${rec.current_price.toLocaleString()}</div>
-                  <div className="text-sm text-gray-600">
-                    Confidence: <span className="font-semibold">{(rec.confidence * 100).toFixed(1)}%</span>
-                  </div>
-                </div>
+            <div> <div className="grid grid-cols-1 md:grid-cols-3 gap-4"> <div className="space-y-2"> <div className="text-2xl font-bold">{formatPrice(rec.current_price)}</div> <div className="text-sm text-gray-600"> Confidence: <span className="font-semibold">{formatPercentage(rec.confidence)}</span> </div> </div> <div className="space-y-2"> <div className="text-sm"> <span className="font-semibold">Trend:</span> {formatTrend(rec.market_context?.trend)} </div> <div className="text-sm"> <span className="font-semibold">Volatility:</span> {rec.market_context?.volatility ?? 'N/A'} </div> <div className="text-sm"> <span className="font-semibold">24h Change:</span> <span className={safeGet(rec.market_context?.recent_performance?.day_1, 0) >= 0 ? 'text-green-600' : 'text-red-600'}> {safeGet(rec.market_context?.recent_performance?.day_1, 0) >= 0 ? '+' : ''}{formatNumber(safeGet(rec.market_context?.recent_performance?.day_1, 0))}% </span> </div> </div> <div className="space-y-2"> <div className="text-sm"> <span className="font-semibold">BUY Score:</span> {formatPercentage(rec.scores?.buy_score)} </div> <div className="text-sm"> <span className="font-semibold">SELL Score:</span> {formatPercentage(rec.scores?.sell_score)} </div> <div className="text-sm"> <span className="font-semibold">HOLD Score:</span> {formatPercentage(rec.scores?.hold_score)} </div> </div> </div>
 
-                {/* Market Context */}
-                <div className="space-y-2">
-                  <div className="text-sm">
-                    <span className="font-semibold">Trend:</span> {rec.market_context.trend}
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-semibold">Volatility:</span> {rec.market_context.volatility}
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-semibold">24h Change:</span> 
-                    <span className={rec.market_context.recent_performance.day_1 >= 0 ? 'text-green-600' : 'text-red-600'}>
-                      {rec.market_context.recent_performance.day_1 >= 0 ? '+' : ''}{rec.market_context.recent_performance.day_1.toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-
-                {/* Signal Scores */}
-                <div className="space-y-2">
-                  <div className="text-sm">
-                    <span className="font-semibold">BUY Score:</span> {(rec.scores.buy_score * 100).toFixed(1)}%
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-semibold">SELL Score:</span> {(rec.scores.sell_score * 100).toFixed(1)}%
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-semibold">HOLD Score:</span> {(rec.scores.hold_score * 100).toFixed(1)}%
-                  </div>
-                </div>
-              </div>
-
-              {/* Strategy Signals */}
-              <div className="mt-4 pt-4 border-t">
-                <h4 className="font-semibold mb-2">Strategy Signals:</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  {rec.strategy_signals.map((signal, index) => (
-                    <div key={index} className="text-sm p-2 bg-gray-50 rounded">
-                      <div className="font-medium">{signal.strategy}</div>
-                      <div className="text-gray-600">
-                        {signal.signal} ({(signal.confidence * 100).toFixed(1)}%)
-                      </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {signal.reasoning}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Reasoning */}
-              <div className="mt-4 pt-4 border-t">
-                <h4 className="font-semibold mb-2">Reasoning:</h4>
-                <p className="text-sm text-gray-600">{rec.reasoning}</p>
-              </div>
+              <div className="mt-4 pt-4 border-t"> <h4 className="font-semibold mb-2">Strategy Signals:</h4> {rec.strategy_signals && rec.strategy_signals.length > 0 ? ( <div className="grid grid-cols-1 md:grid-cols-3 gap-2"> {rec.strategy_signals.map((signal, index) => ( <div key={index} className="text-sm p-2 bg-gray-50 rounded"> <div className="font-medium">{signal.strategy ?? 'N/A'}</div> <div className="text-gray-600"> {signal.signal ?? 'N/A'} ({formatPercentage(signal.confidence)}) </div> <div className="text-xs text-gray-500 mt-1"> {signal.reasoning ?? 'No reasoning provided'} </div> </div> ))} </div> ) : ( <p className="text-sm text-gray-500">No strategy signals available</p> )} </div> <div className="mt-4 pt-4 border-t"> <h4 className="font-semibold mb-2">Reasoning:</h4> <p className="text-sm text-gray-600">{rec.reasoning ?? 'No reasoning available'}</p> </div>
             </div>
           </div>
         ))}

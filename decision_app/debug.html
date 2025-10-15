@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug - One Trade Decision App</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .log {
+            background: #1f2937;
+            color: #f9fafb;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .error { color: #ef4444; }
+        .success { color: #10b981; }
+        .warning { color: #f59e0b; }
+        .info { color: #3b82f6; }
+        button {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #2563eb; }
+        .section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #e5e7eb;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Debug - One Trade Decision App</h1>
+        <p>Esta página nos ayudará a diagnosticar exactamente qué está causando el problema.</p>
+
+        <div class="section">
+            <h3>📊 Estado del Sistema</h3>
+            <p>Backend URL: <span id="backend-url">http://localhost:8000</span></p>
+            <p>Frontend URL: <span id="frontend-url"></span></p>
+            <p>Timestamp: <span id="timestamp"></span></p>
+        </div>
+
+        <div class="section">
+            <h3>🧪 Pruebas de Conectividad</h3>
+            <button onclick="testBasicConnection()">1. Conexión Básica</button>
+            <button onclick="testHealthEndpoint()">2. Health Endpoint</button>
+            <button onclick="testSymbolsEndpoint()">3. Symbols Endpoint</button>
+            <button onclick="testRecommendationEndpoint()">4. Recommendation Endpoint</button>
+            <button onclick="clearLog()">Limpiar Log</button>
+        </div>
+
+        <div class="section">
+            <h3>📝 Log de Debug</h3>
+            <div id="log" class="log">
+                <div class="info">[INFO] Página cargada. Iniciando diagnóstico...</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>🎯 Prueba Completa</h3>
+            <button onclick="runFullTest()" style="background: #10b981;">🚀 Ejecutar Prueba Completa</button>
+            <p>Esto ejecutará todas las pruebas en secuencia para identificar el problema exacto.</p>
+        </div>
+    </div>
+
+    <script>
+        const log = document.getElementById('log');
+        const backendUrl = 'http://localhost:8000';
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            log.appendChild(logEntry);
+            log.scrollTop = log.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        function clearLog() {
+            log.innerHTML = '';
+            addLog('Log limpiado', 'info');
+        }
+
+        async function testBasicConnection() {
+            addLog('Iniciando prueba de conexión básica...', 'info');
+            
+            try {
+                // Intentar fetch básico
+                addLog('Intentando fetch a: ' + backendUrl, 'info');
+                const response = await fetch(backendUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    }
+                });
+                
+                addLog(`Respuesta recibida: ${response.status} ${response.statusText}`, 'success');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('Datos recibidos: ' + JSON.stringify(data, null, 2), 'success');
+                } else {
+                    addLog('Error en respuesta: ' + response.statusText, 'error');
+                }
+                
+            } catch (error) {
+                addLog('Error en conexión básica: ' + error.message, 'error');
+                addLog('Stack trace: ' + error.stack, 'error');
+            }
+        }
+
+        async function testHealthEndpoint() {
+            addLog('Probando endpoint /health...', 'info');
+            
+            try {
+                const response = await fetch(backendUrl + '/health');
+                addLog(`Health endpoint: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('Health data: ' + JSON.stringify(data, null, 2), 'success');
+                }
+            } catch (error) {
+                addLog('Error en health endpoint: ' + error.message, 'error');
+            }
+        }
+
+        async function testSymbolsEndpoint() {
+            addLog('Probando endpoint /api/v1/enhanced-recommendations/supported-symbols...', 'info');
+            
+            try {
+                const response = await fetch(backendUrl + '/api/v1/enhanced-recommendations/supported-symbols');
+                addLog(`Symbols endpoint: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('Symbols data: ' + JSON.stringify(data, null, 2), 'success');
+                }
+            } catch (error) {
+                addLog('Error en symbols endpoint: ' + error.message, 'error');
+            }
+        }
+
+        async function testRecommendationEndpoint() {
+            addLog('Probando endpoint de recomendaciones...', 'info');
+            
+            try {
+                const response = await fetch(backendUrl + '/api/v1/enhanced-recommendations/generate/BTCUSDT?timeframe=1d&days=30');
+                addLog(`Recommendation endpoint: ${response.status} ${response.statusText}`, response.ok ? 'success' : 'error');
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    addLog('Recommendation data: ' + JSON.stringify(data, null, 2), 'success');
+                }
+            } catch (error) {
+                addLog('Error en recommendation endpoint: ' + error.message, 'error');
+            }
+        }
+
+        async function runFullTest() {
+            addLog('🚀 INICIANDO PRUEBA COMPLETA', 'info');
+            addLog('==========================================', 'info');
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testBasicConnection();
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testHealthEndpoint();
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testSymbolsEndpoint();
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await testRecommendationEndpoint();
+            
+            addLog('==========================================', 'info');
+            addLog('✅ PRUEBA COMPLETA FINALIZADA', 'success');
+            addLog('Revisa los resultados arriba para identificar el problema', 'info');
+        }
+
+        // Manejar errores globales
+        window.addEventListener('error', function(event) {
+            addLog('ERROR GLOBAL: ' + event.error.message, 'error');
+            addLog('Archivo: ' + event.filename + ':' + event.lineno, 'error');
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            addLog('PROMESA RECHAZADA: ' + event.reason, 'error');
+        });
+
+        // Inicializar
+        document.getElementById('frontend-url').textContent = window.location.href;
+        document.getElementById('timestamp').textContent = new Date().toLocaleString();
+        
+        addLog('Sistema de debug inicializado', 'success');
+        addLog('Haz clic en "Ejecutar Prueba Completa" para diagnosticar', 'info');
+    </script>
+</body>
+</html>
+
