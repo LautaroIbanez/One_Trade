@@ -69,6 +69,24 @@ class MarketContext(BaseModel):
     market_activity: MarketActivity = Field(..., description="Market activity")
 
 
+class EntryRange(BaseModel):
+    """Entry range for opening positions."""
+    min: float = Field(..., gt=0, description="Minimum entry price")
+    max: float = Field(..., gt=0, description="Maximum entry price")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence in this range")
+
+
+class TradingLevels(BaseModel):
+    """Trading levels for entries, take profit and stop loss."""
+    entry_long: Optional[EntryRange] = Field(None, description="LONG entry range")
+    entry_short: Optional[EntryRange] = Field(None, description="SHORT entry range")
+    take_profit_long: Optional[float] = Field(None, gt=0, description="Take profit level for LONG")
+    stop_loss_long: Optional[float] = Field(None, gt=0, description="Stop loss level for LONG")
+    take_profit_short: Optional[float] = Field(None, gt=0, description="Take profit level for SHORT")
+    stop_loss_short: Optional[float] = Field(None, gt=0, description="Stop loss level for SHORT")
+    atr: Optional[float] = Field(None, ge=0, description="Average True Range used for calculations")
+
+
 class EnhancedRecommendationResponse(BaseModel):
     """Enhanced recommendation response."""
     symbol: str = Field(..., description="Trading symbol")
@@ -81,6 +99,7 @@ class EnhancedRecommendationResponse(BaseModel):
     scores: SignalScores = Field(..., description="Weighted signal scores")
     market_context: MarketContext = Field(..., description="Market context analysis")
     data_summary: DataSummary = Field(..., description="Data summary")
+    trading_levels: Optional[TradingLevels] = Field(None, description="Entry, TP and SL levels")
     timestamp: str = Field(..., description="Recommendation timestamp")
     generated_at: str = Field(..., description="Generation timestamp")
 

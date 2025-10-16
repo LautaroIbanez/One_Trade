@@ -4,6 +4,7 @@ Enhanced recommendation engine that combines multiple strategies.
 
 from typing import Dict, List, Any, Optional
 import pandas as pd
+import numpy as np
 from datetime import datetime
 
 from app.services.strategy_service import strategy_service
@@ -73,7 +74,12 @@ class RecommendationEngine:
             # Step 5: Add market context
             market_context = self._analyze_market_context(market_data, market_info)
             
-            # Step 6: Generate final recommendation
+            # Step 6: Calculate trading levels (entry, TP, SL)
+            trading_levels = self._calculate_trading_levels(
+                market_data, current_price, consolidated['recommendation']
+            )
+            
+            # Step 7: Generate final recommendation
             final_recommendation = {
                 **consolidated,
                 "market_context": market_context,
@@ -88,6 +94,7 @@ class RecommendationEngine:
                     },
                     "volatility": self._calculate_volatility(market_data)
                 },
+                "trading_levels": trading_levels,
                 "generated_at": datetime.now().isoformat()
             }
             
@@ -200,6 +207,141 @@ class RecommendationEngine:
         
         returns = market_data['close'].pct_change().dropna()
         return float(returns.std() * 100)
+    
+    def _calculate_atr(self, market_data: pd.DataFrame, period: int = 14) -> float:
+        """Calculate Average True Range (ATR)."""
+        if len(market_data) < period:
+            return 0.0
+        
+        high = market_data['high']
+        low = market_data['low']
+        close = market_data['close']
+        
+        # Calculate True Range
+        tr1 = high - low
+        tr2 = abs(high - close.shift())
+        tr3 = abs(low - close.shift())
+        
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        
+        # Calculate ATR (simple moving average of TR)
+        atr = tr.rolling(window=period).mean().iloc[-1]
+        
+        return float(atr) if not pd.isna(atr) else 0.0
+    
+    def _find_support_resistance(
+        self, 
+        market_data: pd.DataFrame, 
+        window: int = 20
+    ) -> Dict[str, float]:
+        """Find support and resistance levels using recent highs and lows."""
+        if len(market_data) < window:
+            window = len(market_data)
+        
+        recent_data = market_data.tail(window)
+        
+        support = float(recent_data['low'].min())
+        resistance = float(recent_data['high'].max())
+        
+        # Calculate mid-level
+        mid_level = (support + resistance) / 2
+        
+        return {
+            "support": support,
+            "resistance": resistance,
+            "mid_level": mid_level
+        }
+    
+    def _calculate_trading_levels(
+        self, 
+        market_data: pd.DataFrame, 
+        current_price: float,
+        recommendation: str
+    ) -> Optional[Dict[str, Any]]:
+        """Calculate entry ranges, take profit and stop loss levels."""
+        try:
+            # Calculate ATR for volatility-based levels
+            atr = self._calculate_atr(market_data)
+            
+            if atr == 0:
+                logger.warning("ATR is 0, cannot calculate trading levels")
+                return None
+            
+            # Find support and resistance
+            levels = self._find_support_resistance(market_data)
+            
+            # Calculate entry ranges (using ATR and current price)
+            # LONG entry: slightly below current price or near support
+            entry_long_max = current_price * 0.995  # 0.5% below current
+            entry_long_min = max(
+                current_price - (atr * 1.5), 
+                levels['support'] * 1.01
+            )
+            
+            # SHORT entry: slightly above current price or near resistance
+            entry_short_min = current_price * 1.005  # 0.5% above current
+            entry_short_max = min(
+                current_price + (atr * 1.5),
+                levels['resistance'] * 0.99
+            )
+            
+            # Calculate Take Profit levels
+            # LONG TP: 2x ATR above entry or near resistance
+            take_profit_long = min(
+                current_price + (atr * 2.5),
+                levels['resistance'] * 0.98
+            )
+            
+            # SHORT TP: 2x ATR below entry or near support
+            take_profit_short = max(
+                current_price - (atr * 2.5),
+                levels['support'] * 1.02
+            )
+            
+            # Calculate Stop Loss levels
+            # LONG SL: 1.5x ATR below entry
+            stop_loss_long = max(
+                current_price - (atr * 1.5),
+                levels['support'] * 0.98
+            )
+            
+            # SHORT SL: 1.5x ATR above entry
+            stop_loss_short = min(
+                current_price + (atr * 1.5),
+                levels['resistance'] * 1.02
+            )
+            
+            # Determine confidence based on recommendation strength
+            confidence = 0.7
+            if recommendation in ["STRONG_BUY", "STRONG_SELL"]:
+                confidence = 0.85
+            elif recommendation in ["BUY", "SELL"]:
+                confidence = 0.75
+            
+            trading_levels = {
+                "entry_long": {
+                    "min": round(entry_long_min, 2),
+                    "max": round(entry_long_max, 2),
+                    "confidence": confidence
+                },
+                "entry_short": {
+                    "min": round(entry_short_min, 2),
+                    "max": round(entry_short_max, 2),
+                    "confidence": confidence
+                },
+                "take_profit_long": round(take_profit_long, 2),
+                "stop_loss_long": round(stop_loss_long, 2),
+                "take_profit_short": round(take_profit_short, 2),
+                "stop_loss_short": round(stop_loss_short, 2),
+                "atr": round(atr, 2)
+            }
+            
+            logger.info(f"Calculated trading levels with ATR={atr:.2f}")
+            return trading_levels
+            
+        except Exception as e:
+            logger.error(f"Error calculating trading levels: {e}")
+            return None
     
     def get_supported_symbols(self) -> List[str]:
         """Get list of supported trading symbols."""

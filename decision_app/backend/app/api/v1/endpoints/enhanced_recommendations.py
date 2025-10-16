@@ -250,3 +250,85 @@ async def generate_batch_recommendations(
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generating batch recommendations: {str(e)}")
+
+
+@router.get("/chart-data/{symbol}")
+async def get_chart_data(
+    symbol: str,
+    timeframe: str = Query("1d", description="Data timeframe"),
+    days: int = Query(30, description="Number of days of historical data"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get historical price data formatted for chart visualization.
+    
+    Args:
+        symbol: Trading symbol
+        timeframe: Data timeframe
+        days: Number of days of historical data
+        db: Database session
+        
+    Returns:
+        Chart data with price history and optional trading signals
+    """
+    try:
+        from app.services.binance_service import BinanceService
+        from app.services.strategy_service import strategy_service
+        
+        # Get market data
+        async with BinanceService() as binance:
+            market_data = await binance.get_market_data(
+                symbol=symbol.upper(),
+                interval=timeframe,
+                days=days
+            )
+        
+        if market_data.empty:
+            raise HTTPException(status_code=404, detail=f"No market data available for {symbol}")
+        
+        # Get current recommendation to include trading signals
+        recommendation = await recommendation_engine.generate_recommendation(
+            symbol=symbol.upper(),
+            timeframe=timeframe,
+            days=days
+        )
+        
+        # Format data for chart
+        chart_data = []
+        for idx, row in market_data.iterrows():
+            data_point = {
+                "timestamp": row['timestamp'].isoformat(),
+                "date": row['timestamp'].strftime("%Y-%m-%d"),
+                "price": float(row['close']),
+                "open": float(row['open']),
+                "high": float(row['high']),
+                "low": float(row['low']),
+                "volume": float(row['volume']),
+                "signal": None
+            }
+            chart_data.append(data_point)
+        
+        # Add signals from strategies if available
+        if recommendation.get("strategy_signals"):
+            for signal in recommendation["strategy_signals"]:
+                signal_type = signal.get("signal", "").upper()
+                if signal_type in ["BUY", "SELL"]:
+                    # Mark the last data point with the signal
+                    # In a more sophisticated version, you'd map signals to specific timestamps
+                    chart_data[-1]["signal"] = signal_type
+        
+        return {
+            "symbol": symbol.upper(),
+            "timeframe": timeframe,
+            "data_points": len(chart_data),
+            "data": chart_data,
+            "current_price": recommendation.get("current_price"),
+            "trading_levels": recommendation.get("trading_levels")
+        }
+        
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error getting chart data: {str(e)}")

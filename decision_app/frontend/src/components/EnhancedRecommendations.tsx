@@ -247,6 +247,90 @@ const EnhancedRecommendations: React.FC = () => {
                   <h4 className="font-semibold mb-2">Reasoning:</h4>
                   <p className="text-sm text-gray-600">{rec.reasoning ?? 'No reasoning available'}</p>
                 </div>
+
+                {rec.trading_levels && (
+                  <div className="mt-4 pt-4 border-t">
+                    <h4 className="font-semibold mb-3">Trading Levels</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {rec.trading_levels.entry_long && (
+                        <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <TrendingUp className="h-4 w-4 text-green-600" />
+                            <span className="font-semibold text-green-800">LONG Position</span>
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <div>
+                              <span className="text-gray-600">Entry Range:</span>
+                              <span className="ml-2 font-medium text-green-700">
+                                {formatPrice(rec.trading_levels.entry_long.min)} - {formatPrice(rec.trading_levels.entry_long.max)}
+                              </span>
+                            </div>
+                            {rec.trading_levels.take_profit_long && (
+                              <div>
+                                <span className="text-gray-600">Take Profit:</span>
+                                <span className="ml-2 font-medium text-green-700">
+                                  {formatPrice(rec.trading_levels.take_profit_long)}
+                                </span>
+                              </div>
+                            )}
+                            {rec.trading_levels.stop_loss_long && (
+                              <div>
+                                <span className="text-gray-600">Stop Loss:</span>
+                                <span className="ml-2 font-medium text-red-700">
+                                  {formatPrice(rec.trading_levels.stop_loss_long)}
+                                </span>
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-500 mt-2">
+                              Confidence: {formatPercentage(rec.trading_levels.entry_long.confidence)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {rec.trading_levels.entry_short && (
+                        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <TrendingDown className="h-4 w-4 text-red-600" />
+                            <span className="font-semibold text-red-800">SHORT Position</span>
+                          </div>
+                          <div className="space-y-1 text-sm">
+                            <div>
+                              <span className="text-gray-600">Entry Range:</span>
+                              <span className="ml-2 font-medium text-red-700">
+                                {formatPrice(rec.trading_levels.entry_short.min)} - {formatPrice(rec.trading_levels.entry_short.max)}
+                              </span>
+                            </div>
+                            {rec.trading_levels.take_profit_short && (
+                              <div>
+                                <span className="text-gray-600">Take Profit:</span>
+                                <span className="ml-2 font-medium text-green-700">
+                                  {formatPrice(rec.trading_levels.take_profit_short)}
+                                </span>
+                              </div>
+                            )}
+                            {rec.trading_levels.stop_loss_short && (
+                              <div>
+                                <span className="text-gray-600">Stop Loss:</span>
+                                <span className="ml-2 font-medium text-red-700">
+                                  {formatPrice(rec.trading_levels.stop_loss_short)}
+                                </span>
+                              </div>
+                            )}
+                            <div className="text-xs text-gray-500 mt-2">
+                              Confidence: {formatPercentage(rec.trading_levels.entry_short.confidence)}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {rec.trading_levels.atr && (
+                      <div className="mt-2 text-xs text-gray-500">
+                        ATR (14): {formatNumber(rec.trading_levels.atr)}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )
