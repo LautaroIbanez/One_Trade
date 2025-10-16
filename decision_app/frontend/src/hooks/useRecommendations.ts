@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { EnhancedRecommendation } from '../types/recommendations';
-
-const API_BASE_URL = 'http://localhost:8001/api/v1';
+import { apiClient, ApiError } from '../lib/api-client';
 
 export const useRecommendations = () => {
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const getRecommendation = async (
@@ -16,18 +16,13 @@ export const useRecommendations = () => {
     setError(null);
     
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/enhanced-recommendations/${symbol}?timeframe=${timeframe}&days=${days}`
+      const data = await apiClient.get<EnhancedRecommendation>(
+        `/enhanced-recommendations/generate/${symbol}`,
+        { timeframe, days }
       );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
       return data;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const errorMessage = err instanceof ApiError ? err.message : 'Unknown error';
       setError(errorMessage);
       throw err;
     } finally {
@@ -40,18 +35,10 @@ export const useRecommendations = () => {
     setError(null);
     
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/enhanced-recommendations/supported-symbols`
-      );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
+      const data = await apiClient.get<string[]>('/enhanced-recommendations/supported-symbols');
       return data;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const errorMessage = err instanceof ApiError ? err.message : 'Unknown error';
       setError(errorMessage);
       // Return default symbols if API fails
       return ['BTCUSDT', 'ETHUSDT', 'ADAUSDT'];
@@ -65,35 +52,40 @@ export const useRecommendations = () => {
     timeframe: string = '1d',
     days: number = 30
   ): Promise<Record<string, EnhancedRecommendation>> => {
-    setIsLoading(true);
+    setIsRefreshing(true);
     setError(null);
     
     try {
       const symbolsStr = symbols.join(',');
-      const response = await fetch(
-        `${API_BASE_URL}/enhanced-recommendations/batch/${symbolsStr}?timeframe=${timeframe}&days=${days}`
+      const data = await apiClient.get<Record<string, EnhancedRecommendation>>(
+        `/enhanced-recommendations/batch/${symbolsStr}`,
+        { timeframe, days }
       );
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
       return data;
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      const errorMessage = err instanceof ApiError ? err.message : 'Unknown error';
       setError(errorMessage);
       throw err;
     } finally {
-      setIsLoading(false);
+      setIsRefreshing(false);
     }
+  };
+
+  const refreshRecommendations = async (
+    symbols: string[],
+    timeframe: string = '1d',
+    days: number = 30
+  ): Promise<Record<string, EnhancedRecommendation>> => {
+    return getBatchRecommendations(symbols, timeframe, days);
   };
 
   return {
     getRecommendation,
     getSupportedSymbols,
     getBatchRecommendations,
+    refreshRecommendations,
     isLoading,
+    isRefreshing,
     error,
   };
 };
