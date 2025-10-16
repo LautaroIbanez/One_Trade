@@ -1,0 +1,41 @@
+fix: resolve critical issues in statistics, charts, and confidence calculation
+
+Critical Issues Fixed:
+
+1. Real-Time Statistics now use real backtest data
+   - Created /api/v1/stats endpoint reading from trades_final_*.csv files
+   - Added stats_service.py to calculate real P&L, win rate, drawdown from backtests
+   - Frontend shows clear message when no historical data available
+   - Eliminated fake metrics calculated from heuristics
+
+2. Price Chart with proper logging and fallbacks
+   - Added detailed logging for debugging data fetch issues
+   - Fallback to cached CSV files when API unavailable
+   - Display explanatory messages instead of blank charts
+   - Clear user guidance when configuration needed
+
+3. Confidence separated by setup direction
+   - LONG and SHORT now have independent confidence values
+   - STRONG_BUY: 90% LONG confidence, 40% SHORT confidence
+   - STRONG_SELL: 40% LONG confidence, 90% SHORT confidence
+   - Added methodology field explaining calculation basis
+   - Exposed support/resistance levels in trading_levels
+
+Backend Changes:
+- app/schemas/stats.py - New statistics schemas
+- app/services/stats_service.py - Service calculating real metrics from backtests
+- app/api/v1/endpoints/stats.py - REST endpoints for statistics
+- app/schemas/enhanced_recommendation.py - Extended with methodology and S/R fields
+- app/services/recommendation_engine.py - Differentiated confidence calculation
+- webapp/app.py - Enhanced logging and fallback for historical data
+
+Frontend Changes:
+- components/RealTimeStats.tsx - Removed fake calculations, shows warnings
+- types/recommendations.ts - Added methodology, support_level, resistance_level
+
+Documentation:
+- CRITICAL_ISSUES_CORRECTIONS.md - Detailed analysis and future roadmap
+
+Testing:
+Run backtests to generate trades_final_*.csv, then verify /stats endpoint returns real data
+
