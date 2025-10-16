@@ -74,17 +74,21 @@ class EntryRange(BaseModel):
     min: float = Field(..., gt=0, description="Minimum entry price")
     max: float = Field(..., gt=0, description="Maximum entry price")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence in this range")
+    methodology: str = Field(default="ATR + Support/Resistance", description="Calculation methodology")
 
 
 class TradingLevels(BaseModel):
     """Trading levels for entries, take profit and stop loss."""
-    entry_long: Optional[EntryRange] = Field(None, description="LONG entry range")
-    entry_short: Optional[EntryRange] = Field(None, description="SHORT entry range")
+    entry_long: Optional[EntryRange] = Field(None, description="LONG entry range with specific confidence")
+    entry_short: Optional[EntryRange] = Field(None, description="SHORT entry range with specific confidence")
     take_profit_long: Optional[float] = Field(None, gt=0, description="Take profit level for LONG")
     stop_loss_long: Optional[float] = Field(None, gt=0, description="Stop loss level for LONG")
     take_profit_short: Optional[float] = Field(None, gt=0, description="Take profit level for SHORT")
     stop_loss_short: Optional[float] = Field(None, gt=0, description="Stop loss level for SHORT")
     atr: Optional[float] = Field(None, ge=0, description="Average True Range used for calculations")
+    support_level: Optional[float] = Field(None, description="Detected support level")
+    resistance_level: Optional[float] = Field(None, description="Detected resistance level")
+    calculation_note: str = Field(default="Levels calculated using ATR (1.5x for SL, 2.5x for TP) bounded by support/resistance", description="Methodology note")
 
 
 class EnhancedRecommendationResponse(BaseModel):

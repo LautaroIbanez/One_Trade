@@ -1139,7 +1139,17 @@ def figure_win_loss(trades: pd.DataFrame):
 
 def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "1h", today_recommendation: dict = None, mode: str = "moderate"):
     if fetch_historical_data is None:
-        return go.Figure()
+        logger.warning("fetch_historical_data function not available. Check API configuration or ccxt installation.")
+        # Return empty figure with explanatory message
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Historical data not available<br>Configure API credentials to load price charts",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=14, color="gray")
+        )
+        return fig
+    
     try:
         since_date = None
         if not trades.empty:
@@ -1149,12 +1159,33 @@ def figure_trades_on_price(trades: pd.DataFrame, symbol: str, timeframe: str = "
         start_date_dt, end_date_dt = determine_price_date_range(symbol, since_date, lookback_days=365)
         start_date = start_date_dt.date().isoformat()
         end_date = end_date_dt.date().isoformat()
+        
+        logger.info(f"Fetching historical data for {symbol} from {start_date} to {end_date}")
         price = fetch_historical_data(symbol, start_date, end_date, timeframe)
+        
         if price is None or price.empty:
+            logger.warning(f"No data returned for {symbol}, trying alternative symbol format")
             alt_symbol = symbol.replace(":USDT", "") if ":USDT" in symbol else symbol
             price = fetch_historical_data(alt_symbol, start_date, end_date, timeframe)
+        
         if price is None or price.empty:
-            return go.Figure()
+            logger.error(f"Could not fetch historical data for {symbol} or {alt_symbol}")
+            # Try to load from cached CSV if available
+            cached_file = base_dir.parent / "data" / f"{symbol.replace('/', '_').replace(':', '_')}_historical.csv"
+            if cached_file.exists():
+                logger.info(f"Loading cached data from {cached_file}")
+                price = pd.read_csv(cached_file, parse_dates=['time'])
+            else:
+                logger.error(f"No cached data available at {cached_file}")
+                # Return empty figure with message
+                fig = go.Figure()
+                fig.add_annotation(
+                    text=f"No historical data available for {symbol}<br>Run backtest first to cache data",
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5, showarrow=False,
+                    font=dict(size=14, color="red")
+                )
+                return fig
         price = price.copy()
         price = price.reset_index().rename(columns={"timestamp": "time"}) if "timestamp" in price.columns else price.reset_index(names=["time"]) 
         fig = px.line(price, x="time", y="close", title=f"{symbol} Price with Trades (365+ days)")

@@ -311,29 +311,45 @@ class RecommendationEngine:
                 levels['resistance'] * 1.02
             )
             
-            # Determine confidence based on recommendation strength
-            confidence = 0.7
-            if recommendation in ["STRONG_BUY", "STRONG_SELL"]:
-                confidence = 0.85
-            elif recommendation in ["BUY", "SELL"]:
-                confidence = 0.75
+            # Determine confidence based on recommendation strength and position
+            base_confidence = 0.7
+            if recommendation in ["STRONG_BUY"]:
+                long_confidence = 0.90
+                short_confidence = 0.40
+            elif recommendation in ["BUY"]:
+                long_confidence = 0.80
+                short_confidence = 0.50
+            elif recommendation in ["STRONG_SELL"]:
+                long_confidence = 0.40
+                short_confidence = 0.90
+            elif recommendation in ["SELL"]:
+                long_confidence = 0.50
+                short_confidence = 0.80
+            else:  # HOLD
+                long_confidence = 0.60
+                short_confidence = 0.60
             
             trading_levels = {
                 "entry_long": {
                     "min": round(entry_long_min, 2),
                     "max": round(entry_long_max, 2),
-                    "confidence": confidence
+                    "confidence": long_confidence,
+                    "methodology": "ATR + Support/Resistance"
                 },
                 "entry_short": {
                     "min": round(entry_short_min, 2),
                     "max": round(entry_short_max, 2),
-                    "confidence": confidence
+                    "confidence": short_confidence,
+                    "methodology": "ATR + Support/Resistance"
                 },
                 "take_profit_long": round(take_profit_long, 2),
                 "stop_loss_long": round(stop_loss_long, 2),
                 "take_profit_short": round(take_profit_short, 2),
                 "stop_loss_short": round(stop_loss_short, 2),
-                "atr": round(atr, 2)
+                "atr": round(atr, 2),
+                "support_level": round(levels['support'], 2),
+                "resistance_level": round(levels['resistance'], 2),
+                "calculation_note": "Levels calculated using ATR (1.5x for SL, 2.5x for TP) bounded by support/resistance"
             }
             
             logger.info(f"Calculated trading levels with ATR={atr:.2f}")

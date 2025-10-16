@@ -46,6 +46,9 @@ const RealTimeStats: React.FC<RealTimeStatsProps> = () => {
       try {
         const statsData = await apiClient.get<BackendStatsResponse>('/stats');
         
+        // Check if we have real backtest data
+        const hasRealData = (statsData as any).dataSource === 'backtests';
+        
         setStats({
           activeRecommendations: statsData.activeRecommendations,
           totalPnL: statsData.totalPnL,
@@ -54,66 +57,18 @@ const RealTimeStats: React.FC<RealTimeStatsProps> = () => {
           lastUpdate: new Date().toLocaleTimeString()
         });
         
+        // If we don't have real backtest data, show a warning
+        if (!hasRealData) {
+          setError('No historical backtest data available. Showing estimated metrics.');
+        }
+        
         return;
       } catch (statsError) {
-        console.log('Stats endpoint not available, calculating from recommendations...');
+        console.log('Stats endpoint not available');
+        setError('Historical metrics not available. Please run backtests to see real performance data.');
+        return;
       }
 
-      // Fallback: calculate stats from recommendations
-      const symbols = await apiClient.get<string[]>('/enhanced-recommendations/supported-symbols');
-      
-      // Get batch recommendations to calculate stats
-      const symbolsStr = symbols.join(',');
-      const recommendations = await apiClient.get<Record<string, any>>(
-        `/enhanced-recommendations/batch/${symbolsStr}`,
-        { timeframe: '1d', days: 30 }
-      );
-    
-      // Calculate stats from real data
-      const activeRecommendations = symbols.length;
-      let totalConfidence = 0;
-      let buySignals = 0;
-      let sellSignals = 0;
-      let holdSignals = 0;
-      let maxDrawdown = 0;
-      
-      Object.values(recommendations).forEach((rec: any) => {
-        if (rec.error) return;
-        
-        totalConfidence += rec.confidence || 0;
-        
-        if (rec.recommendation === 'BUY' || rec.recommendation === 'STRONG_BUY') {
-          buySignals++;
-        } else if (rec.recommendation === 'SELL' || rec.recommendation === 'STRONG_SELL') {
-          sellSignals++;
-        } else {
-          holdSignals++;
-        }
-        
-        // Estimate drawdown from volatility
-        if (rec.market_context?.volatility === 'HIGH') {
-          maxDrawdown = Math.max(maxDrawdown, -15);
-        } else if (rec.market_context?.volatility === 'MEDIUM') {
-          maxDrawdown = Math.max(maxDrawdown, -8);
-        } else {
-          maxDrawdown = Math.max(maxDrawdown, -3);
-        }
-      });
-      
-      const avgConfidence = activeRecommendations > 0 ? totalConfidence / activeRecommendations : 0;
-      const winRate = buySignals > 0 ? (buySignals / (buySignals + sellSignals + holdSignals)) * 100 : 0;
-      
-      // Estimate P&L based on signal distribution and confidence
-      const estimatedPnL = (buySignals * avgConfidence * 2.5) - (sellSignals * avgConfidence * 1.8);
-      
-      setStats({
-        activeRecommendations,
-        totalPnL: estimatedPnL,
-        winRate: winRate,
-        maxDrawdown: maxDrawdown,
-        lastUpdate: new Date().toLocaleTimeString()
-      });
-      
     } catch (err) {
       console.error("Error fetching stats:", err);
       const errorMessage = err instanceof ApiError ? err.message : 'Error loading statistics';

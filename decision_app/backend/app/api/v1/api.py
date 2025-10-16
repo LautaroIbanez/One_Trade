@@ -4,7 +4,7 @@ Main API router for v1 endpoints.
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import recommendations, market_data, backtests, health, strategies, enhanced_recommendations
+from app.api.v1.endpoints import recommendations, market_data, backtests, health, strategies, enhanced_recommendations, stats
 
 api_router = APIRouter()
 
@@ -43,5 +43,10 @@ api_router.include_router(
     enhanced_recommendations.router,
     prefix="/enhanced-recommendations",
     tags=["enhanced-recommendations"]
+)
+
+api_router.include_router(
+    stats.router,
+    tags=["stats"]
 )
 

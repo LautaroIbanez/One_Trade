@@ -39,6 +39,7 @@ export interface EntryRange {
   min: number;
   max: number;
   confidence: number;
+  methodology?: string;
 }
 
 export interface TradingLevels {
@@ -49,6 +50,9 @@ export interface TradingLevels {
   take_profit_short?: number;
   stop_loss_short?: number;
   atr?: number;
+  support_level?: number;
+  resistance_level?: number;
+  calculation_note?: string;
 }
 
 export interface EnhancedRecommendation {
