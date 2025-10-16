@@ -53,16 +53,27 @@ class StatsService:
                     # Calculate metrics
                     total_trades = len(df)
                     
-                    if 'pnl_pct' in df.columns:
-                        winning_trades = len(df[df['pnl_pct'] > 0])
-                        losing_trades = len(df[df['pnl_pct'] <= 0])
+                    # Calculate pnl_pct from pnl_usdt if not present
+                    if 'pnl_pct' not in df.columns and 'pnl_usdt' in df.columns:
+                        # Estimate pnl_pct: assuming ~$1000 position size
+                        # More accurate: use entry_price * some position size
+                        if 'entry_price' in df.columns:
+                            # Assume $1000 position size for pct calculation
+                            df['pnl_pct'] = (df['pnl_usdt'] / 1000.0) * 100
+                        else:
+                            df['pnl_pct'] = df['pnl_usdt'] * 0.1  # Rough estimate
+                    
+                    if 'pnl_pct' in df.columns or 'pnl_usdt' in df.columns:
+                        pnl_col = 'pnl_pct' if 'pnl_pct' in df.columns else 'pnl_usdt'
+                        winning_trades = len(df[df[pnl_col] > 0])
+                        losing_trades = len(df[df[pnl_col] <= 0])
                         win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
-                        total_pnl = df['pnl_pct'].sum()
+                        total_pnl = df[pnl_col].sum() if pnl_col == 'pnl_pct' else df[pnl_col].sum() / 100
                         max_drawdown = self._calculate_max_drawdown(df)
                         profit_factor = self._calculate_profit_factor(df)
-                        avg_r_multiple = df.get('r_multiple', pd.Series([0])).mean()
+                        avg_r_multiple = df.get('r_multiple', pd.Series([0])).mean() if 'r_multiple' in df.columns else 0
                     else:
-                        # Fallback for older format
+                        # Fallback for unsupported format
                         winning_trades = 0
                         losing_trades = 0
                         win_rate = 0
