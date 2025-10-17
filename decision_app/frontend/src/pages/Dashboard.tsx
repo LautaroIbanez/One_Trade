@@ -9,10 +9,11 @@ import { RefreshCw } from 'lucide-react'
 
 export default function Dashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT')
+  const [chartMode, setChartMode] = useState<'line' | 'candles'>('candles')
   const { chartData, isLoading, error, refetch } = useChartData({
     symbol: selectedSymbol,
     timeframe: '1d',
-    days: 30
+    days: 90
   })
 
   const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'SOLUSDT']
@@ -49,6 +50,16 @@ export default function Dashboard() {
                 </button>
               ))}
             </div>
+            <div className="flex items-center space-x-1">
+              <button
+                className={`px-2 py-1 text-xs rounded border ${chartMode==='line' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
+                onClick={() => setChartMode('line')}
+              >Line</button>
+              <button
+                className={`px-2 py-1 text-xs rounded border ${chartMode==='candles' ? 'bg-gray-800 text-white' : 'bg-gray-100'}`}
+                onClick={() => setChartMode('candles')}
+              >Candles</button>
+            </div>
             <Button onClick={refetch} disabled={isLoading} size="sm" variant="outline">
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             </Button>
@@ -79,6 +90,7 @@ export default function Dashboard() {
             stopLossLong={chartData.trading_levels?.stop_loss_long}
             takeProfitShort={chartData.trading_levels?.take_profit_short}
             stopLossShort={chartData.trading_levels?.stop_loss_short}
+            mode={chartMode}
           />
         )}
       </div>

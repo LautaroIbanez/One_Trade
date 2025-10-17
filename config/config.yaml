@@ -4,8 +4,8 @@
 # === EXCHANGE CONFIGURATION ===
 exchange:
   name: "binance"  # binance | bybit (solo binance en fase 1)
-  api_key: ""  # Opcional para datos públicos
-  api_secret: ""
+  api_key: ""  # moved to .env
+  api_secret: ""  # moved to .env
   testnet: false
   rate_limit:
     max_requests_per_minute: 1200

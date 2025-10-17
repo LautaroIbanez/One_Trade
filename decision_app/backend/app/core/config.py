@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     # External APIs
     BINANCE_API_URL: str = "https://api.binance.com"
     BINANCE_WS_URL: str = "wss://stream.binance.com:9443/ws"
+    # Optional credentials for Binance (read from environment if provided)
+    BINANCE_API_KEY: Optional[str] = None
+    BINANCE_API_SECRET: Optional[str] = None
     
     # Trading
     DEFAULT_SYMBOLS: str = Field(default="BTCUSDT,ETHUSDT,ADAUSDT")

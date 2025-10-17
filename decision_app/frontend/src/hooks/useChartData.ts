@@ -31,15 +31,11 @@ export function useChartData({
     try {
       const response = await apiClient.get<ChartData>(
         `/enhanced-recommendations/chart-data/${symbol}`,
-        {
-          params: {
-            timeframe,
-            days
-          }
-        }
+        { timeframe, days }
       );
 
-      setChartData(response.data);
+      // The API client returns the parsed JSON body directly
+      setChartData(response);
     } catch (err: any) {
       const errorMessage = err.response?.data?.detail || err.message || 'Error fetching chart data';
       setError(errorMessage);

@@ -71,3 +71,7 @@ config/config.local.yaml
 
 
 
+decision_app/backend/.env
+webapp/.env
+.env
+*.yaml.bak

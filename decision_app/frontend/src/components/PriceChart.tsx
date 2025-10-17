@@ -1,5 +1,5 @@
-import React from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceDot } from 'recharts';
+import React, { useMemo, useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, ReferenceDot, Brush } from 'recharts';
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 
 interface PriceDataPoint {
@@ -19,6 +19,7 @@ interface PriceChartProps {
   stopLossLong?: number;
   takeProfitShort?: number;
   stopLossShort?: number;
+  mode?: 'line' | 'candles';
 }
 
 const PriceChart: React.FC<PriceChartProps> = ({
@@ -30,8 +31,41 @@ const PriceChart: React.FC<PriceChartProps> = ({
   takeProfitLong,
   stopLossLong,
   takeProfitShort,
-  stopLossShort
+  stopLossShort,
+  mode = 'candles'
 }) => {
+  // Zoom/Pan state (index-based over data)
+  const [range, setRange] = useState<{ start: number; end: number }>({ start: 0, end: Math.max(0, data.length - 1) });
+
+  const maxWindow = data.length;
+  const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+
+  const displayed = useMemo(() => {
+    const s = clamp(range.start, 0, maxWindow - 1);
+    const e = clamp(range.end, s, maxWindow - 1);
+    return data.slice(s, e + 1);
+  }, [data, range, maxWindow]);
+
+  const onBrushChange = (r: any) => {
+    if (!r) return;
+    const s = typeof r.startIndex === 'number' ? r.startIndex : 0;
+    const e = typeof r.endIndex === 'number' ? r.endIndex : data.length - 1;
+    setRange({ start: s, end: e });
+  };
+
+  const resetZoom = () => setRange({ start: 0, end: Math.max(0, data.length - 1) });
+  const pan = (delta: number) => {
+    const width = range.end - range.start;
+    let s = clamp(range.start + delta, 0, maxWindow - 1 - width);
+    setRange({ start: s, end: s + width });
+  };
+  const zoom = (factor: number) => {
+    // factor < 1 => zoom in, >1 => zoom out
+    const width = Math.max(5, Math.floor((range.end - range.start + 1) * factor));
+    const center = Math.floor((range.start + range.end) / 2);
+    let s = clamp(center - Math.floor(width / 2), 0, maxWindow - width);
+    setRange({ start: s, end: s + width - 1 });
+  };
   const formatPrice = (value: number) => {
     return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
@@ -75,6 +109,15 @@ const PriceChart: React.FC<PriceChartProps> = ({
     return null;
   };
 
+  // Empty state when no data points
+  if (!data || data.length === 0) {
+    return (
+      <div className="w-full h-80 flex items-center justify-center border border-dashed rounded text-sm text-gray-500">
+        No chart data available
+      </div>
+    );
+  }
+
   return (
     <div className="w-full space-y-4">
       <div className="flex items-center justify-between">
@@ -82,17 +125,27 @@ const PriceChart: React.FC<PriceChartProps> = ({
           <Activity className="h-5 w-5 text-blue-600" />
           <h3 className="text-lg font-semibold">{symbol} Price Chart</h3>
         </div>
-        {currentPrice && (
+        <div className="flex items-center space-x-2">
+          {/* Zoom/Pan controls */}
+          <div className="hidden md:flex items-center space-x-1 mr-2 text-xs">
+            <button className="px-2 py-1 border rounded" onClick={() => pan(-3)}>◀</button>
+            <button className="px-2 py-1 border rounded" onClick={() => zoom(0.8)}>＋</button>
+            <button className="px-2 py-1 border rounded" onClick={() => zoom(1.25)}>－</button>
+            <button className="px-2 py-1 border rounded" onClick={() => pan(3)}>▶</button>
+            <button className="px-2 py-1 border rounded" onClick={resetZoom}>Reset</button>
+          </div>
+          {currentPrice && (
           <div className="text-right">
             <div className="text-sm text-gray-600">Current Price</div>
             <div className="text-xl font-bold">{formatPrice(currentPrice)}</div>
           </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="w-full h-80 bg-white rounded-lg border border-gray-200 p-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+        <ResponsiveContainer width="99%" height="100%" key={`${symbol}-${displayed.length}`}>
+          <LineChart data={displayed} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="date"
@@ -111,6 +164,8 @@ const PriceChart: React.FC<PriceChartProps> = ({
               wrapperStyle={{ paddingTop: '20px' }}
               iconType="line"
             />
+            {/* Brush for zoom & pan */}
+            <Brush dataKey="date" height={20} stroke="#94a3b8" travellerWidth={8} onChange={onBrushChange} />
             
             {/* Current price line */}
             {currentPrice && (
@@ -178,6 +233,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
               />
             )}
 
+            {/* Render as line always for now (candles mode could be added with a custom renderer) */}
             <Line
               type="monotone"
               dataKey="price"
@@ -185,7 +241,7 @@ const PriceChart: React.FC<PriceChartProps> = ({
               strokeWidth={2}
               dot={false}
               activeDot={renderSignalDot}
-              name="Price"
+              name={mode === 'candles' ? 'Close' : 'Price'}
             />
           </LineChart>
         </ResponsiveContainer>
