@@ -132,14 +132,14 @@ const RealRecommendations: React.FC<RealRecommendationsProps> = () => {
   if (error) {
     return (
       <div className="rounded-lg border bg-red-50 p-6 text-red-800">
-        <p className="font-medium">Error loading recommendations</p>
+        <p className="font-medium">Ups, algo salió mal</p>
         <p className="text-sm">{error}</p>
         <button 
           onClick={fetchRecommendations}
           className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
         >
           <RefreshCw className="h-4 w-4 mr-2 inline" />
-          Retry
+          Intentar otra vez
         </button>
       </div>
     );
@@ -154,12 +154,12 @@ const RealRecommendations: React.FC<RealRecommendationsProps> = () => {
               <div className={`w-3 h-3 rounded-full ${getRiskColor(rec.risk_assessment.level)}`}></div>
               <span className="font-semibold">{rec.symbol}</span>
             </div>
-            <span className="text-sm text-muted-foreground">Real-time</span>
+            <span className="text-sm text-muted-foreground">En vivo</span>
           </div>
           
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Action</span>
+              <span className="text-sm text-muted-foreground">Qué hacer</span>
               <span className={`font-semibold flex items-center ${getRecommendationColor(rec.recommendation)}`}>
                 {getRecommendationIcon(rec.recommendation)}
                 <span className="ml-1">{rec.recommendation}</span>
@@ -167,24 +167,24 @@ const RealRecommendations: React.FC<RealRecommendationsProps> = () => {
             </div>
             
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Confidence</span>
+              <span className="text-sm text-muted-foreground">Qué tan seguro</span>
               <span className="font-semibold">{(rec.confidence * 100).toFixed(1)}%</span>
             </div>
             
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Current Price</span>
+              <span className="text-sm text-muted-foreground">Precio ahora</span>
               <span className="font-semibold">${rec.current_price.toLocaleString()}</span>
             </div>
             
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Risk Level</span>
+              <span className="text-sm text-muted-foreground">Nivel de riesgo</span>
               <span className={`px-2 py-1 rounded-full text-xs font-medium text-white ${getRiskColor(rec.risk_assessment.level)}`}>
-                {rec.risk_assessment.level}
+                {rec.risk_assessment.level === 'LOW' ? 'BAJO' : rec.risk_assessment.level === 'MEDIUM' ? 'MEDIO' : 'ALTO'}
               </span>
             </div>
             
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Trend</span>
+              <span className="text-sm text-muted-foreground">Tendencia</span>
               <span className={`font-semibold ${getTrendColor(rec.market_context.trend)}`}>
                 {rec.market_context.trend}
               </span>
@@ -193,7 +193,7 @@ const RealRecommendations: React.FC<RealRecommendationsProps> = () => {
           
           <div className="mt-4 p-3 bg-muted rounded-md">
             <p className="text-sm">
-              <strong>Strategy Signals:</strong>
+              <strong>Señales que encontré:</strong>
             </p>
             <div className="mt-2 space-y-1">
               {rec.strategy_signals.map((signal, idx) => (
@@ -203,7 +203,7 @@ const RealRecommendations: React.FC<RealRecommendationsProps> = () => {
               ))}
             </div>
             <p className="text-sm mt-2">
-              <strong>Reasoning:</strong> {rec.reasoning.substring(0, 100)}...
+              <strong>Por qué:</strong> {rec.reasoning.substring(0, 100)}...
             </p>
           </div>
         </div>

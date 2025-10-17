@@ -3,7 +3,7 @@ Pydantic schemas for recommendation-related API models.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
@@ -13,7 +13,9 @@ class RecommendationBase(BaseModel):
     timeframe: str = Field(..., description="Timeframe (e.g., 1h, 4h, 1d)")
     action: str = Field(..., description="Recommended action: BUY, SELL, or HOLD")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence level (0.0 to 1.0)")
-    price_target: Optional[float] = Field(None, description="Target price for the trade")
+    entry_price: Optional[float] = Field(None, description="Entry price for the trade")
+    price_target: Optional[float] = Field(None, description="Primary target price (deprecated: use take_profit_targets)")
+    take_profit_targets: Optional[List[float]] = Field(None, description="Take profit target prices (multiple levels)")
     stop_loss: Optional[float] = Field(None, description="Stop loss price")
     reasoning: Optional[str] = Field(None, description="Human-readable explanation")
     strategy_weights: Optional[Dict[str, float]] = Field(None, description="Strategy contribution weights")
@@ -29,7 +31,9 @@ class RecommendationUpdate(BaseModel):
     """Schema for updating a recommendation."""
     action: Optional[str] = None
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    entry_price: Optional[float] = None
     price_target: Optional[float] = None
+    take_profit_targets: Optional[List[float]] = None
     stop_loss: Optional[float] = None
     reasoning: Optional[str] = None
     strategy_weights: Optional[Dict[str, float]] = None

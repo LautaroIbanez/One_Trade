@@ -66,6 +66,9 @@ export interface EnhancedRecommendation {
   scores: SignalScores;
   market_context: MarketContext;
   trading_levels?: TradingLevels;
+  entry_price?: number;
+  take_profit_targets?: number[];
+  stop_loss?: number;
   timestamp: string;
   error?: string;
 }

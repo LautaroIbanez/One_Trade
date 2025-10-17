@@ -40,8 +40,8 @@ const BacktestComparison: React.FC = () => {
           configs.push({
             symbol,
             strategy,
-            days: 90,
-            label: `${symbol} + ${strategy} (90d)`
+            days: 365,
+            label: `${symbol} + ${strategy} (12 meses)`
           });
         }
       }
@@ -115,13 +115,13 @@ const BacktestComparison: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-xl font-semibold">Backtest Comparison</h3>
+          <h3 className="text-xl font-semibold">Comparación de Backtests</h3>
           <p className="text-sm text-gray-600">
-            Compare multiple symbol/strategy combinations with extended periods
+            Compara múltiples combinaciones de símbolos/estrategias usando una ventana de 12 meses
           </p>
           {testConfigurations.length > 0 && (
             <p className="text-xs text-gray-500 mt-1">
-              {testConfigurations.length} tests configured
+              {testConfigurations.length} pruebas configuradas (cada una con 365 días)
             </p>
           )}
         </div>

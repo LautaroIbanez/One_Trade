@@ -103,7 +103,7 @@ const EnhancedRecommendationsImproved: React.FC = () => {
   if (symbolsError) {
     return (
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Enhanced Recommendations</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Qué hacer ahora</h2>
         <ErrorDisplay error={symbolsError} onRetry={retrySymbols} />
       </div>
     );
@@ -121,8 +121,8 @@ const EnhancedRecommendationsImproved: React.FC = () => {
   if (loadingSymbols || (loadingRecs && !recommendations)) {
     return (
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Enhanced Recommendations</h2>
-        <LoadingDisplay message="Cargando recomendaciones..." />
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Qué hacer ahora</h2>
+        <LoadingDisplay message="Analizando el mercado para ti..." />
       </div>
     );
   }
@@ -130,8 +130,8 @@ const EnhancedRecommendationsImproved: React.FC = () => {
   if (!recommendations || Object.keys(recommendations).length === 0) {
     return (
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Enhanced Recommendations</h2>
-        <EmptyDisplay message="No hay recomendaciones disponibles" />
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Qué hacer ahora</h2>
+        <EmptyDisplay message="Todavía no tenemos señales claras. Vuelve en unos minutos." />
       </div>
     );
   }
@@ -141,14 +141,14 @@ const EnhancedRecommendationsImproved: React.FC = () => {
       {/* Header */}
       <div className="px-6 py-4 border-b">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">Enhanced Recommendations</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Qué hacer ahora</h2>
           <Button
             onClick={handleRefresh}
             disabled={loadingRecs}
             className="bg-blue-600 text-white hover:bg-blue-700"
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${loadingRecs ? 'animate-spin' : ''}`} />
-            {loadingRecs ? 'Actualizando...' : 'Actualizar'}
+            {loadingRecs ? 'Revisando...' : 'Revisar de nuevo'}
           </Button>
         </div>
       </div>
@@ -171,12 +171,12 @@ const EnhancedRecommendationsImproved: React.FC = () => {
                   
                   <div className="flex items-center space-x-4">
                     <div>
-                      <p className="text-xs text-gray-500">Confianza</p>
+                      <p className="text-xs text-gray-500">Qué tan seguro estoy</p>
                       <p className="text-sm font-medium">{(rec.confidence * 100).toFixed(1)}%</p>
                     </div>
                     
                     <div>
-                      <p className="text-xs text-gray-500">Estrategia</p>
+                      <p className="text-xs text-gray-500">Método usado</p>
                       <p className="text-sm font-medium">{rec.details.strategy}</p>
                     </div>
                     

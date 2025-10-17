@@ -21,7 +21,7 @@ const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
 
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [strategy, setStrategy] = useState('RSI');
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(365);
   const [initialCapital, setInitialCapital] = useState(10000);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ReturnType<typeof normalizeQuickBacktestResult> | null>(null);
@@ -152,7 +152,10 @@ const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">Backtesting Engine</h2>
+        <div>
+          <h2 className="text-2xl font-bold">Backtesting Engine</h2>
+          <p className="text-sm text-gray-600 mt-1">Los backtests usan una ventana móvil de 12 meses para resultados más precisos</p>
+        </div>
         <div className="flex space-x-2">
           <Button onClick={runBacktest} disabled={loading}>
             <Play className="h-4 w-4 mr-2" />
@@ -212,15 +215,16 @@ const BacktestRunner: React.FC<BacktestRunnerProps> = () => {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Days</label>
+          <label className="block text-sm font-medium mb-1">Período (días)</label>
           <input
             type="number"
             value={days}
             onChange={(e) => setDays(parseInt(e.target.value))}
-            min="7"
-            max="365"
+            min="365"
+            max="730"
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
+          <p className="text-xs text-gray-500 mt-1">Mínimo 12 meses (365 días) recomendado</p>
         </div>
 
         <div>

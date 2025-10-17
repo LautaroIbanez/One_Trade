@@ -76,8 +76,8 @@ class BacktestingEngine:
         self,
         symbol: str,
         strategy_name: str,
-        start_date: datetime,
-        end_date: datetime,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
         initial_capital: float = 10000.0,
         strategy_params: Optional[Dict[str, Any]] = None,
         timeframe: str = "1d"
@@ -88,8 +88,8 @@ class BacktestingEngine:
         Args:
             symbol: Trading symbol
             strategy_name: Name of the strategy
-            start_date: Start date for backtest
-            end_date: End date for backtest
+            start_date: Start date for backtest (defaults to 365 days ago)
+            end_date: End date for backtest (defaults to today)
             initial_capital: Initial capital
             strategy_params: Strategy parameters
             timeframe: Data timeframe
@@ -98,7 +98,21 @@ class BacktestingEngine:
             BacktestResult with performance metrics
         """
         try:
-            logger.info(f"Starting backtest for {symbol} with {strategy_name}")
+            # Apply 12-month rolling window by default
+            if end_date is None:
+                end_date = datetime.now()
+            
+            if start_date is None:
+                start_date = end_date - timedelta(days=365)
+                logger.info(f"Using default 12-month rolling window: {start_date.date()} to {end_date.date()}")
+            else:
+                # Validate minimum window of 365 days
+                date_diff = (end_date - start_date).days
+                if date_diff < 365:
+                    logger.warning(f"Requested window of {date_diff} days is less than 365. Adjusting start_date.")
+                    start_date = end_date - timedelta(days=365)
+            
+            logger.info(f"Starting backtest for {symbol} with {strategy_name} from {start_date.date()} to {end_date.date()}")
             
             # Get strategy
             strategy = strategy_service.get_strategy(strategy_name)

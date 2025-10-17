@@ -145,19 +145,22 @@ class RecommendationService:
         if price_change > 0.02:  # 2% increase
             action = "BUY"
             confidence = 0.75
-            price_target = latest_price * 1.05
+            entry_price = latest_price * 0.995  # Entry slightly below current
+            take_profit_targets = [latest_price * 1.03, latest_price * 1.05, latest_price * 1.08]
             stop_loss = latest_price * 0.95
             reasoning = f"Strong bullish momentum detected. Price increased by {price_change:.2%} in the last period."
         elif price_change < -0.02:  # 2% decrease
             action = "SELL"
             confidence = 0.70
-            price_target = latest_price * 0.95
+            entry_price = latest_price * 1.005  # Entry slightly above current
+            take_profit_targets = [latest_price * 0.97, latest_price * 0.95, latest_price * 0.92]
             stop_loss = latest_price * 1.05
             reasoning = f"Bearish momentum detected. Price decreased by {abs(price_change):.2%} in the last period."
         else:
             action = "HOLD"
             confidence = 0.60
-            price_target = None
+            entry_price = None
+            take_profit_targets = None
             stop_loss = None
             reasoning = f"Sideways movement detected. Price change of {price_change:.2%} is within normal range."
         
@@ -166,7 +169,9 @@ class RecommendationService:
             timeframe=timeframe,
             action=action,
             confidence=confidence,
-            price_target=price_target,
+            entry_price=entry_price,
+            price_target=take_profit_targets[0] if take_profit_targets else None,  # Backward compatibility
+            take_profit_targets=take_profit_targets,
             stop_loss=stop_loss,
             reasoning=reasoning,
             strategy_weights={

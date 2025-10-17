@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { TrendingUp, TrendingDown, Activity, DollarSign } from 'lucide-react'
 import EnhancedRecommendations from '@/components/EnhancedRecommendations'
 import RealTimeStats from '@/components/RealTimeStats'
 import PriceChart from '@/components/PriceChart'
+import TradePlanSummary from '@/components/TradePlanSummary'
 import { useChartData } from '@/hooks/useChartData'
 import { Button } from '@/components/ui/button'
 import { RefreshCw } from 'lucide-react'
+import { EnhancedRecommendation } from '@/types/recommendations'
 
 export default function Dashboard() {
   const [selectedSymbol, setSelectedSymbol] = useState('BTCUSDT')
   const [chartMode, setChartMode] = useState<'line' | 'candles'>('candles')
+  const [recommendation, setRecommendation] = useState<EnhancedRecommendation | null>(null)
   const { chartData, isLoading, error, refetch } = useChartData({
     symbol: selectedSymbol,
     timeframe: '1d',
@@ -17,6 +20,23 @@ export default function Dashboard() {
   })
 
   const symbols = ['BTCUSDT', 'ETHUSDT', 'ADAUSDT', 'SOLUSDT']
+
+  useEffect(() => {
+    const fetchRecommendation = async () => {
+      try {
+        const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+        const response = await fetch(`${API_BASE_URL}/api/v1/enhanced-recommendations/generate/${selectedSymbol}?timeframe=1d&days=30`);
+        if (response.ok) {
+          const data = await response.json();
+          setRecommendation(data);
+        }
+      } catch (err) {
+        console.error('Error fetching recommendation:', err);
+      }
+    };
+
+    fetchRecommendation();
+  }, [selectedSymbol]);
 
   return (
     <div className="space-y-6">
@@ -94,6 +114,18 @@ export default function Dashboard() {
           />
         )}
       </div>
+
+      {/* Trading Plan Summary */}
+      {recommendation && (
+        <TradePlanSummary
+          recommendation={recommendation.recommendation}
+          currentPrice={recommendation.current_price}
+          tradingLevels={recommendation.trading_levels}
+          entryPrice={recommendation.entry_price}
+          takeProfitTargets={recommendation.take_profit_targets}
+          stopLoss={recommendation.stop_loss}
+        />
+      )}
 
       {/* Real-Time Recommendations */}
       <EnhancedRecommendations />

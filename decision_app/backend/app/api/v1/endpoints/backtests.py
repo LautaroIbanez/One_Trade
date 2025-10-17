@@ -38,27 +38,37 @@ async def run_backtest(
         Backtest results with performance metrics
     """
     try:
-        # Validate date range
-        if backtest_request.end_date <= backtest_request.start_date:
+        # Apply default 12-month rolling window if dates not provided
+        start_date = backtest_request.start_date
+        end_date = backtest_request.end_date
+        
+        if end_date is None:
+            end_date = datetime.now()
+        
+        if start_date is None:
+            start_date = end_date - timedelta(days=365)
+        
+        # Validate date range (minimum 12 months)
+        date_diff = end_date - start_date
+        if date_diff.days < 365:
+            # Adjust to 12-month window
+            start_date = end_date - timedelta(days=365)
+            from app.core.logging import get_logger
+            logger = get_logger(__name__)
+            logger.warning(f"Date range less than 365 days. Adjusted to 12-month window: {start_date.date()} to {end_date.date()}")
+        
+        if end_date <= start_date:
             raise HTTPException(
                 status_code=400,
                 detail="End date must be after start date"
             )
         
-        # Check if date range is too large (max 1 year)
-        date_diff = backtest_request.end_date - backtest_request.start_date
-        if date_diff.days > 365:
-            raise HTTPException(
-                status_code=400,
-                detail="Date range cannot exceed 1 year"
-            )
-        
-        # Run backtest
+        # Run backtest with adjusted dates
         result = await backtesting_engine.run_backtest(
             symbol=backtest_request.symbol,
             strategy_name=backtest_request.strategy_name,
-            start_date=backtest_request.start_date,
-            end_date=backtest_request.end_date,
+            start_date=start_date,
+            end_date=end_date,
             initial_capital=backtest_request.initial_capital,
             strategy_params=backtest_request.strategy_params,
             timeframe=backtest_request.timeframe
@@ -85,14 +95,14 @@ async def run_backtest(
                 is_open=trade.is_open
             ))
         
-        # Create backtest response
+        # Create backtest response with actual dates used
         backtest_response = BacktestResponse(
             id=0,  # Will be set by database
             name=backtest_request.name,
             symbol=backtest_request.symbol,
             strategy_name=backtest_request.strategy_name,
-            start_date=backtest_request.start_date,
-            end_date=backtest_request.end_date,
+            start_date=start_date,
+            end_date=end_date,
             initial_capital=backtest_request.initial_capital,
             final_capital=result.final_capital,
             total_return=result.total_return,

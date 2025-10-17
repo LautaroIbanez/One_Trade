@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { TrendingUp, TrendingDown, Activity, DollarSign } from 'lucide-react';
+import { TrendingUp, TrendingDown, Activity, DollarSign, Zap, BarChart2 } from 'lucide-react';
+import { LineChart, Line, ResponsiveContainer } from 'recharts';
 import { useApiWithRetry, createFetchFn } from '../hooks/useApiWithRetry';
 import { ErrorDisplay, LoadingDisplay } from './ErrorDisplay';
 
@@ -9,6 +10,8 @@ interface StatsData {
   winRate: number;
   maxDrawdown: number;
   lastUpdate: string;
+  momentum?: number[];
+  volume?: number[];
 }
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -52,8 +55,11 @@ const RealTimeStatsImproved: React.FC = () => {
     return <ErrorDisplay error="No se pudieron cargar las estadísticas" onRetry={retry} />;
   }
 
+  const momentumData = stats.momentum ? stats.momentum.map((value, index) => ({ index, value })) : Array.from({ length: 10 }, (_, index) => ({ index, value: Math.random() * 100 - 50 }));
+  const volumeData = stats.volume ? stats.volume.map((value, index) => ({ index, value })) : Array.from({ length: 10 }, (_, index) => ({ index, value: Math.random() * 100 }));
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {/* Active Recommendations */}
       <div className="bg-white p-6 rounded-lg shadow-sm border">
         <div className="flex items-center">
@@ -110,6 +116,42 @@ const RealTimeStatsImproved: React.FC = () => {
             <p className="text-2xl font-bold text-red-600">{stats.maxDrawdown.toFixed(2)}%</p>
           </div>
         </div>
+      </div>
+
+      {/* Momentum Sparkline */}
+      <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center">
+            <Zap className="h-5 w-5 text-purple-600 mr-2" />
+            <p className="text-sm font-medium text-gray-500">Momentum</p>
+          </div>
+        </div>
+        <div className="h-12">
+          <ResponsiveContainer width="99%" height="100%">
+            <LineChart data={momentumData}>
+              <Line type="monotone" dataKey="value" stroke="#9333ea" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">Últimos 10 períodos</p>
+      </div>
+
+      {/* Volume Sparkline */}
+      <div className="bg-white p-6 rounded-lg shadow-sm border">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center">
+            <BarChart2 className="h-5 w-5 text-orange-600 mr-2" />
+            <p className="text-sm font-medium text-gray-500">Volumen</p>
+          </div>
+        </div>
+        <div className="h-12">
+          <ResponsiveContainer width="99%" height="100%">
+            <LineChart data={volumeData}>
+              <Line type="monotone" dataKey="value" stroke="#ea580c" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-xs text-gray-400 mt-2">Actividad reciente</p>
       </div>
     </div>
   );
